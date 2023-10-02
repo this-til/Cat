@@ -638,6 +638,14 @@ repositories {
             }
         }
         maven {
+            name = "ic2-mirror"
+            url = "https://maven2.ic2.player.to/"
+            metadataSources {
+                mavenPom()
+                artifact()
+            }
+        }
+        maven {
             name "MMD Maven"
             url "https://maven.mcmoddev.com/"
         }
