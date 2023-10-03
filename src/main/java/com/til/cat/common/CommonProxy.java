@@ -1,6 +1,7 @@
 package com.til.cat.common;
 
 import com.til.cat.Config;
+import com.til.cat.common.loaders.Cat_Loader_MetaTileEntities;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
@@ -14,6 +15,7 @@ public class CommonProxy {
     }
 
     public void init(FMLInitializationEvent event) {
+        Cat_Loader_MetaTileEntities.register();
     }
 
     public void postInit(FMLPostInitializationEvent event) {

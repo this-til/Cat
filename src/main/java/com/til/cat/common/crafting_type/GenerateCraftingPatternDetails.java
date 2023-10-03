@@ -62,12 +62,12 @@ public class GenerateCraftingPatternDetails implements ICraftingPatternDetails, 
 
     @Override
     public IAEItemStack[] getCondensedInputs() {
-        return outputs;
+        return inputs;
     }
 
     @Override
     public IAEItemStack[] getCondensedOutputs() {
-        return inputs;
+        return outputs;
     }
 
     @Override

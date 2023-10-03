@@ -1,7 +1,7 @@
 package com.til.cat.common.crafting_type;
 
+import appeng.api.networking.crafting.ICraftingPatternDetails;
 import appeng.api.networking.crafting.ICraftingProviderHelper;
-import appeng.api.storage.data.IAEFluidStack;
 import appeng.api.storage.data.IAEItemStack;
 import appeng.util.item.AEItemStack;
 import com.glodblock.github.common.item.ItemFluidDrop;
@@ -16,7 +16,17 @@ import java.util.List;
 
 public enum CraftingType {
 
-    NULL(null);
+    NULL(null),
+
+    /***
+     * 压缩机配方
+     */
+    COMPRESSOR(GT_Recipe.GT_Recipe_Map.sCompressorRecipes),
+    /***
+     * 提取机配方
+     */
+    EXTRACTOR_RECIPES(GT_Recipe.GT_Recipe_Map.sExtractorRecipes),
+    ;
 
     public static final double REDUCE_PROBABILITY_OUT = 0.2;
 
@@ -26,10 +36,12 @@ public enum CraftingType {
         this.gtRecipeMap = gtRecipeMap;
     }
 
-    public void provideCrafting(GT_MetaTileEntity_Intelligence_Input_ME tile, ICraftingProviderHelper craftingProviderHelper) {
+    public List<ICraftingPatternDetails> provideCrafting(GT_MetaTileEntity_Intelligence_Input_ME tile, ICraftingProviderHelper craftingProviderHelper) {
+        List<ICraftingPatternDetails> list = new ArrayList<>();
         if (gtRecipeMap == null) {
-            return;
+            return list;
         }
+
         ItemStack[] inputNecessaryItem = tile.getInputNecessaryItem();
         ItemStack[] outNecessaryItem = tile.getOutNecessaryItem();
         FluidStack[] inputNecessaryFluid = tile.getInputNecessaryFluid();
@@ -83,12 +95,18 @@ public enum CraftingType {
             for (int i = 0; i < gt_recipe.mOutputs.length; i++) {
                 int c = gt_recipe.getOutputChance(i);
                 double p = c / 10000d;
-                double ap = p * tile.getMultiple();
-                ap *= (1 - REDUCE_PROBABILITY_OUT);
-                if (ap < 0) {
-                    break c;
+                int m = tile.getMultiple();
+                if (p < 0) {
+                    if (tile.isExcludeProbability()) {
+                        break c;
+                    }
+                    double ap = p * tile.getMultiple();
+                    ap *= (1 - REDUCE_PROBABILITY_OUT);
+                    if (ap < 0) {
+                        break c;
+                    }
+                    m = (int) Math.floor(ap);
                 }
-                int m = (int) Math.floor(ap);
                 IAEItemStack iaeItemStack = AEItemStack.create(gt_recipe.mOutputs[i]);
                 iaeItemStack.setStackSize(iaeItemStack.getStackSize() * m);
                 outAeItemList.add(iaeItemStack);
@@ -97,12 +115,18 @@ public enum CraftingType {
                 int cid = i + gt_recipe.mOutputs.length;
                 int c = gt_recipe.getOutputChance(cid);
                 double p = c / 10000d;
-                double ap = p * tile.getMultiple();
-                ap *= (1 - REDUCE_PROBABILITY_OUT);
-                if (ap < 0) {
-                    break c;
+                int m = tile.getMultiple();
+                if (p < 0) {
+                    if (tile.isExcludeProbability()) {
+                        break c;
+                    }
+                    double ap = p * tile.getMultiple();
+                    ap *= (1 - REDUCE_PROBABILITY_OUT);
+                    if (ap < 0) {
+                        break c;
+                    }
+                    m = (int) Math.floor(ap);
                 }
-                int m = (int) Math.floor(ap);
                 IAEItemStack iaeItemStack = ItemFluidDrop.newAeStack(gt_recipe.mFluidOutputs[i]);
                 if (iaeItemStack == null) {
                     break c;
@@ -111,7 +135,13 @@ public enum CraftingType {
                 outAeItemList.add(iaeItemStack);
                 hasFluid = true;
             }
-            craftingProviderHelper.addCraftingOption(tile, new GenerateCraftingPatternDetails(
+            if (inAeItemList.isEmpty()) {
+                break;
+            }
+            if (outAeItemList.isEmpty()) {
+                break;
+            }
+            list.add(new GenerateCraftingPatternDetails(
                 inAeItemList.toArray(new IAEItemStack[0]),
                 outAeItemList.toArray(new IAEItemStack[0]),
                 tile.isCanSubstitute(),
@@ -119,6 +149,7 @@ public enum CraftingType {
                 hasFluid
             ));
         }
+        return list;
     }
 
     public GT_Recipe.GT_Recipe_Map getGtRecipeMap() {
