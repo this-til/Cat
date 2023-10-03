@@ -48,9 +48,9 @@ public enum CraftingType {
         FluidStack[] outNecessaryFluid = tile.getOutNecessaryFluid();
 
         boolean hasInputNecessaryItem = inputNecessaryItem[0] != null;
-        boolean hasOutNecessaryItem = inputNecessaryItem[0] != null;
-        boolean hasInputNecessaryFluid = inputNecessaryItem[0] != null;
-        boolean hasOutNecessaryFluid = inputNecessaryItem[0] != null;
+        boolean hasOutNecessaryItem = outNecessaryItem[0] != null;
+        boolean hasInputNecessaryFluid = inputNecessaryFluid[0] != null;
+        boolean hasOutNecessaryFluid = outNecessaryFluid[0] != null;
 
 
         c:
@@ -169,33 +169,32 @@ public enum CraftingType {
     }
 
     public static boolean hasFluid(FluidStack[] necessary, FluidStack[] in) {
-        for (int i = 0; i < in.length; i++) {
-            FluidStack fluidStack = in[i];
-            for (int ii = 0; ii < necessary.length; ii++) {
-                if (necessary[ii] == null) {
-                    break;
-                }
-                if (GT_Utility.areFluidsEqual(fluidStack, necessary[ii])) {
-                    return true;
+        for (FluidStack fluidStack : necessary) {
+            if (fluidStack == null) {
+                break;
+            }
+            for (FluidStack stack : in) {
+                if (!GT_Utility.areFluidsEqual(fluidStack, stack)) {
+                    return false;
                 }
             }
         }
-        return false;
+        return true;
+
     }
 
     public static boolean hasItem(ItemStack[] necessary, ItemStack[] in) {
-        for (int i = 0; i < in.length; i++) {
-            ItemStack inItemStack = in[i];
-            for (int ii = 0; ii < necessary.length; ii++) {
-                if (necessary[ii] == null) {
-                    break;
-                }
-                if (GT_Utility.areStacksEqual(inItemStack, necessary[ii])) {
-                    return true;
+        for (ItemStack itemStack : necessary) {
+            if (itemStack == null) {
+                break;
+            }
+            for (ItemStack stack : in) {
+                if (!GT_Utility.areStacksEqual(itemStack, stack)) {
+                    return false;
                 }
             }
         }
-        return false;
+        return true;
     }
 
 

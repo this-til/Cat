@@ -108,6 +108,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
     protected int multiple = 1;
 
+    @Nullable
     protected CraftingType craftingType;
 
     /***
@@ -641,12 +642,13 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
     @Override
     public void addAdditionalTooltipInformation(ItemStack stack, List<String> tooltip) {
-        tooltip.add("机械类型:" + StatCollector.translateToLocal(craftingType.getGtRecipeMap().mUnlocalizedName));
+        tooltip.add("机械类型:" + (craftingType == null ? "null" : StatCollector.translateToLocal(craftingType.getGtRecipeMap().mUnlocalizedName)));
     }
 
     @Override
     public void getWailaBody(ItemStack itemStack, List<String> currenttip, IWailaDataAccessor accessor, IWailaConfigHandler config) {
         NBTTagCompound tag = accessor.getNBTData();
+        currenttip.add("机械类型:" + (tag.hasKey("craftingType") ? StatCollector.translateToLocal(tag.getString("craftingType")) : "null"));
         if (tag.hasKey("inventory")) {
             NBTTagList inventory = tag.getTagList("inventory", Constants.NBT.TAG_COMPOUND);
             for (int i = 0; i < inventory.tagCount(); ++i) {
@@ -665,6 +667,8 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
     @Override
     public void getWailaNBTData(EntityPlayerMP player, TileEntity tile, NBTTagCompound tag, World world, int x, int y, int z) {
+        tag.setString("craftingType", craftingType == null ? "null" : craftingType.getGtRecipeMap().mUnlocalizedName);
+
 
         NBTTagList inventory = new NBTTagList();
         HashMap<String, Integer> nameToAmount = new HashMap<>();
@@ -724,6 +728,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
             builder.widget(itemInButtonWidget);
         }
+
         {
             ButtonWidget itemOutButtonWidget = new ButtonWidget();
 
@@ -855,6 +860,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
             builder.widget(buttonWidget);
         }
+
         {
             ButtonWidget buttonWidget = new ButtonWidget();
             buttonWidget.setOnClick((clickData, widget) -> {
@@ -871,6 +877,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
             builder.widget(buttonWidget);
         }
+
         {
             ButtonWidget buttonWidget = new ButtonWidget();
             buttonWidget.setOnClick((clickData, widget) -> {
@@ -971,7 +978,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                         detectAndSendChangesAll();
                         return;
                     }
-                    ItemStack addItemStack = GT_Utility.copyAmount(1L, cursorStack);
+                    ItemStack addItemStack = GT_Utility.copyAmount(0L, cursorStack);
 
                     for (int i = 0; i < NECESSARY_MAX_SLOT; i++) {
                         if (necessaryItemStack[i] == null) {
@@ -1084,7 +1091,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                     if (heldFluid == null) {
                         return;
                     }
-                    FluidStack setFileStack = GT_Utility.copyAmount(1, heldFluid);
+                    FluidStack setFileStack = GT_Utility.copyAmount(0, heldFluid);
                     for (int ii = 0; ii < NECESSARY_MAX_SLOT; ii++) {
                         if (necessaryFluidStack[ii] == null) {
                             necessaryFluidStack[ii] = setFileStack;
