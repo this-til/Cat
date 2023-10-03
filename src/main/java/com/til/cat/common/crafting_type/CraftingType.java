@@ -177,6 +177,11 @@ public enum CraftingType {
                 if (!GT_Utility.areFluidsEqual(fluidStack, stack)) {
                     return false;
                 }
+                if (fluidStack.amount > 0) {
+                    if (stack.amount != fluidStack.amount) {
+                        return false;
+                    }
+                }
             }
         }
         return true;
@@ -191,6 +196,11 @@ public enum CraftingType {
             for (ItemStack stack : in) {
                 if (!GT_Utility.areStacksEqual(itemStack, stack)) {
                     return false;
+                }
+                if (itemStack.stackSize > 0) {
+                    if (stack.stackSize != itemStack.stackSize) {
+                        return false;
+                    }
                 }
             }
         }

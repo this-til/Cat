@@ -23,7 +23,14 @@ import appeng.util.Platform;
 import appeng.util.ReadableNumberConverter;
 import com.glodblock.github.common.item.ItemFluidPacket;
 import com.google.common.collect.ImmutableList;
+import com.gtnewhorizons.modularui.api.GlStateManager;
+import com.gtnewhorizons.modularui.api.ModularUITextures;
+import com.gtnewhorizons.modularui.api.NumberFormat;
+import com.gtnewhorizons.modularui.api.drawable.GuiHelper;
 import com.gtnewhorizons.modularui.api.drawable.IDrawable;
+import com.gtnewhorizons.modularui.api.drawable.Text;
+import com.gtnewhorizons.modularui.api.drawable.TextRenderer;
+import com.gtnewhorizons.modularui.api.forge.IItemHandlerModifiable;
 import com.gtnewhorizons.modularui.api.forge.ItemStackHandler;
 import com.gtnewhorizons.modularui.api.math.Alignment;
 import com.gtnewhorizons.modularui.api.math.Color;
@@ -31,10 +38,16 @@ import com.gtnewhorizons.modularui.api.math.Pos2d;
 import com.gtnewhorizons.modularui.api.math.Size;
 import com.gtnewhorizons.modularui.api.screen.ModularWindow;
 import com.gtnewhorizons.modularui.api.screen.UIBuildContext;
+import com.gtnewhorizons.modularui.api.widget.Widget;
 import com.gtnewhorizons.modularui.common.fluid.FluidStackTank;
+import com.gtnewhorizons.modularui.common.internal.Theme;
+import com.gtnewhorizons.modularui.common.internal.wrapper.BaseSlot;
+import com.gtnewhorizons.modularui.common.internal.wrapper.ModularGui;
 import com.gtnewhorizons.modularui.common.widget.*;
 import com.gtnewhorizons.modularui.common.widget.textfield.TextFieldWidget;
 import com.til.cat.common.crafting_type.CraftingType;
+import cpw.mods.fml.relauncher.Side;
+import cpw.mods.fml.relauncher.SideOnly;
 import gregtech.api.GregTech_API;
 import gregtech.api.gui.modularui.GT_UIInfos;
 import gregtech.api.gui.modularui.GT_UITextures;
@@ -64,11 +77,13 @@ import net.minecraftforge.common.util.Constants;
 import net.minecraftforge.common.util.ForgeDirection;
 import net.minecraftforge.fluids.FluidStack;
 import org.apache.commons.lang3.ArrayUtils;
+import org.lwjgl.opengl.GL11;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import static gregtech.api.enums.Textures.BlockIcons.OVERLAY_ME_CRAFTING_INPUT_BUFFER;
 
@@ -85,13 +100,15 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
     protected static final int OUT_NECESSARY_ITEM_WINDOW_ID = 11;
     protected static final int INPUT_NECESSARY_FLUID_WINDOW_ID = 12;
     protected static final int OUT_NECESSARY_FLUID_WINDOW_ID = 13;
-    protected static final int CONFIGURATION_MULTIPLE = 14;
+    protected static final int CONFIGURATION_MULTIPLE_WINDOW_ID = 14;
+    protected static final int CONFIGURATION_NUMBER_WINDOW_ID = 15;
     protected static final int[] ALL_WINDOW_ID = new int[]{
         INPUT_NECESSARY_ITEM_WINDOW_ID,
         OUT_NECESSARY_ITEM_WINDOW_ID,
         INPUT_NECESSARY_FLUID_WINDOW_ID,
         OUT_NECESSARY_FLUID_WINDOW_ID,
-        CONFIGURATION_MULTIPLE
+        CONFIGURATION_MULTIPLE_WINDOW_ID,
+        CONFIGURATION_NUMBER_WINDOW_ID
     };
 
     protected static final Pos2d[] storedPos = new Pos2d[]{
@@ -132,12 +149,12 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
      */
     protected FluidStack[] outNecessaryFluid = new FluidStack[NECESSARY_MAX_SLOT];
 
-    protected ItemStackHandler inputNecessaryItemHandler = new ItemStackHandler(inputNecessaryItem);
+    //protected ItemStackHandler inputNecessaryItemHandler = new ItemStackHandler(inputNecessaryItem);
 
-    protected ItemStackHandler outNecessaryItemItemHandle = new ItemStackHandler(outNecessaryItem);
+    //protected ItemStackHandler outNecessaryItemItemHandle = new ItemStackHandler(outNecessaryItem);
 
-    protected FluidStackTank[] inputNecessaryFluidTanks = new FluidStackTank[NECESSARY_MAX_SLOT];
-    protected FluidStackTank[] outNecessaryFluidTanks = new FluidStackTank[NECESSARY_MAX_SLOT];
+    //protected FluidStackTank[] inputNecessaryFluidTanks = new FluidStackTank[NECESSARY_MAX_SLOT];
+    //protected FluidStackTank[] outNecessaryFluidTanks = new FluidStackTank[NECESSARY_MAX_SLOT];
 
 
     protected List<ItemStack> itemInventory = new ArrayList<>();
@@ -180,17 +197,6 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
     public GT_MetaTileEntity_Intelligence_Input_ME(String aName, int aTier, String[] aDescription, ITexture[][][] aTextures, CraftingType craftingType) {
         super(aName, aTier, 0, aDescription, aTextures);
         this.craftingType = craftingType;
-        for (int i = 0; i < NECESSARY_MAX_SLOT; i++) {
-            final int index = i;
-            inputNecessaryFluidTanks[i] = new FluidStackTank(
-                () -> inputNecessaryFluid[index],
-                fluid -> inputNecessaryFluid[index] = fluid,
-                1);
-            outNecessaryFluidTanks[i] = new FluidStackTank(
-                () -> outNecessaryFluid[index],
-                fluid -> outNecessaryFluid[index] = fluid,
-                1);
-        }
     }
 
     @Override
@@ -701,23 +707,19 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
     @Override
     public void addUIWidgets(ModularWindow.Builder builder, UIBuildContext buildContext) {
-        buildContext.addSyncedWindow(INPUT_NECESSARY_ITEM_WINDOW_ID, player -> necessaryItemConfigurationWindow(player, inputNecessaryItem, GT_UITextures.PICTURE_ITEM_IN, inputNecessaryItemHandler));
-        buildContext.addSyncedWindow(OUT_NECESSARY_ITEM_WINDOW_ID, player -> necessaryItemConfigurationWindow(player, outNecessaryItem, GT_UITextures.PICTURE_ITEM_OUT, outNecessaryItemItemHandle));
-        buildContext.addSyncedWindow(INPUT_NECESSARY_FLUID_WINDOW_ID, player -> necessaryFluidConfigurationWindow(player, inputNecessaryFluid, GT_UITextures.PICTURE_FLUID_IN, inputNecessaryFluidTanks));
-        buildContext.addSyncedWindow(OUT_NECESSARY_FLUID_WINDOW_ID, player -> necessaryFluidConfigurationWindow(player, outNecessaryFluid, GT_UITextures.PICTURE_FLUID_OUT, outNecessaryFluidTanks));
-        buildContext.addSyncedWindow(CONFIGURATION_MULTIPLE, this::createConfigurationMultipleWindow);
-        AtomicInteger oldWindowId = new AtomicInteger(-1);
+        buildContext.addSyncedWindow(INPUT_NECESSARY_ITEM_WINDOW_ID, player -> necessaryItemConfigurationWindow(player, inputNecessaryItem, GT_UITextures.PICTURE_ITEM_IN));
+        buildContext.addSyncedWindow(OUT_NECESSARY_ITEM_WINDOW_ID, player -> necessaryItemConfigurationWindow(player, outNecessaryItem, GT_UITextures.PICTURE_ITEM_OUT));
+        buildContext.addSyncedWindow(INPUT_NECESSARY_FLUID_WINDOW_ID, player -> necessaryFluidConfigurationWindow(player, inputNecessaryFluid, GT_UITextures.PICTURE_FLUID_IN));
+        buildContext.addSyncedWindow(OUT_NECESSARY_FLUID_WINDOW_ID, player -> necessaryFluidConfigurationWindow(player, outNecessaryFluid, GT_UITextures.PICTURE_FLUID_OUT));
+        buildContext.addSyncedWindow(CONFIGURATION_MULTIPLE_WINDOW_ID, this::createConfigurationMultipleWindow);
+        buildContext.addSyncedWindow(CONFIGURATION_NUMBER_WINDOW_ID, this::configurationNumberWindow);
         {
             ButtonWidget itemInButtonWidget = new ButtonWidget();
 
             itemInButtonWidget.setOnClick((clickData, widget) -> {
-
                 if (clickData.mouseButton == 0) {
-                    if (widget.getContext().isWindowOpen(oldWindowId.get()) && !widget.getContext().isClient()) {
-                        widget.getContext().closeWindow(oldWindowId.get());
-                    }
+                    closeAllWindow(widget);
                     widget.getContext().openSyncedWindow(INPUT_NECESSARY_ITEM_WINDOW_ID);
-                    oldWindowId.set(INPUT_NECESSARY_ITEM_WINDOW_ID);
                 }
             });
             itemInButtonWidget.setPlayClickSound(true);
@@ -734,11 +736,8 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
             itemOutButtonWidget.setOnClick((clickData, widget) -> {
                 if (clickData.mouseButton == 0) {
-                    if (widget.getContext().isWindowOpen(oldWindowId.get()) && !widget.getContext().isClient()) {
-                        widget.getContext().closeWindow(oldWindowId.get());
-                    }
+                    closeAllWindow(widget);
                     widget.getContext().openSyncedWindow(OUT_NECESSARY_ITEM_WINDOW_ID);
-                    oldWindowId.set(OUT_NECESSARY_ITEM_WINDOW_ID);
                 }
             });
             itemOutButtonWidget.setPlayClickSound(true);
@@ -756,11 +755,8 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
             fluidInButtonWidget.setOnClick((clickData, widget) -> {
                 if (clickData.mouseButton == 0) {
-                    if (widget.getContext().isWindowOpen(oldWindowId.get()) && !widget.getContext().isClient()) {
-                        widget.getContext().closeWindow(oldWindowId.get());
-                    }
+                    closeAllWindow(widget);
                     widget.getContext().openSyncedWindow(INPUT_NECESSARY_FLUID_WINDOW_ID);
-                    oldWindowId.set(INPUT_NECESSARY_FLUID_WINDOW_ID);
                 }
             });
             fluidInButtonWidget.setPlayClickSound(true);
@@ -778,11 +774,8 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
             fluidOutButtonWidget.setOnClick((clickData, widget) -> {
                 if (clickData.mouseButton == 0) {
-                    if (widget.getContext().isWindowOpen(oldWindowId.get()) && !widget.getContext().isClient()) {
-                        widget.getContext().closeWindow(oldWindowId.get());
-                    }
+                    closeAllWindow(widget);
                     widget.getContext().openSyncedWindow(OUT_NECESSARY_FLUID_WINDOW_ID);
-                    oldWindowId.set(OUT_NECESSARY_FLUID_WINDOW_ID);
                 }
 
             });
@@ -801,11 +794,8 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
             ButtonWidget multipleButtonWidget = new ButtonWidget();
             multipleButtonWidget.setOnClick((clickData, widget) -> {
                 if (clickData.mouseButton == 0) {
-                    if (widget.getContext().isWindowOpen(oldWindowId.get()) && !widget.getContext().isClient()) {
-                        widget.getContext().closeWindow(oldWindowId.get());
-                    }
-                    widget.getContext().openSyncedWindow(CONFIGURATION_MULTIPLE);
-                    oldWindowId.set(CONFIGURATION_MULTIPLE);
+                    closeAllWindow(widget);
+                    widget.getContext().openSyncedWindow(CONFIGURATION_MULTIPLE_WINDOW_ID);
                 }
             });
             multipleButtonWidget.setPlayClickSound(true);
@@ -897,6 +887,48 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
     }
 
+    @Nullable
+    protected Consumer<Integer> setAmount;
+
+    protected int inAmount;
+
+
+    protected ModularWindow configurationNumberWindow(final EntityPlayer player) {
+        final int WIDTH = 78;
+        final int HEIGHT = 40;
+        final int PARENT_WIDTH = getGUIWidth();
+        final int PARENT_HEIGHT = getGUIHeight();
+        ModularWindow.Builder builder = ModularWindow.builder(WIDTH, HEIGHT);
+        builder.setBackground(GT_UITextures.BACKGROUND_SINGLEBLOCK_DEFAULT);
+        builder.setGuiTint(getGUIColorization());
+        builder.setDraggable(true);
+        builder.setPos(
+            (size, window) -> Alignment.Center.getAlignedPos(
+                    size,
+                    new Size(PARENT_WIDTH, PARENT_HEIGHT))
+                .add(Alignment.TopRight.getAlignedPos(new Size(PARENT_WIDTH, PARENT_HEIGHT), new Size(WIDTH, HEIGHT)).add(WIDTH - 3, -0))
+                .add(0, 60));
+        builder.widget(
+                new TextWidget("数量").setPos(3, 2)
+                    .setSize(74, 14))
+            .widget(
+                new TextFieldWidget().setSetterInt(val -> {
+                        if (setAmount != null) {
+                            setAmount.accept(val);
+                        }
+                    })
+                    .setGetterInt(() -> inAmount)
+                    .setNumbers(0, Integer.MAX_VALUE)
+                    .setOnScrollNumbers(1, 1, 64)
+                    .setTextAlignment(Alignment.Center)
+                    .setTextColor(Color.WHITE.normal)
+                    .setSize(36, 18)
+                    .setPos(19, 18)
+                    .setBackground(GT_UITextures.BACKGROUND_TEXT_FIELD));
+        return builder.build();
+
+    }
+
     protected ModularWindow createConfigurationMultipleWindow(final EntityPlayer player) {
         final int WIDTH = 78;
         final int HEIGHT = 40;
@@ -920,8 +952,8 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                         needPatternSync = true;
                     })
                     .setGetterInt(() -> multiple)
-                    .setNumbers(1, Integer.MAX_VALUE)
-                    .setOnScrollNumbers(1, 1, 65536)
+                    .setNumbers(1, 65536)
+                    .setOnScrollNumbers(1, 1, 64)
                     .setTextAlignment(Alignment.Center)
                     .setTextColor(Color.WHITE.normal)
                     .setSize(36, 18)
@@ -930,8 +962,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
         return builder.build();
     }
 
-
-    protected ModularWindow necessaryItemConfigurationWindow(EntityPlayer player, ItemStack[] necessaryItemStack, IDrawable iDrawable, ItemStackHandler inputNecessaryItemHandler) {
+    protected ModularWindow necessaryItemConfigurationWindow(EntityPlayer player, ItemStack[] necessaryItemStack, IDrawable iDrawable) {
         final int WIDTH = 60;
         final int HEIGHT = 60;
         final int PARENT_WIDTH = getGUIWidth();
@@ -948,59 +979,89 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                 new Size(PARENT_WIDTH, PARENT_HEIGHT),
                 new Size(WIDTH, HEIGHT)).add(WIDTH - 3, 0)));
         SlotWidget[] slotWidgets = new SlotWidget[NECESSARY_MAX_SLOT];
+        IItemHandlerModifiable inputNecessaryItemHandler = new ItemStackHandler(necessaryItemStack);
         SlotGroup.ItemGroupBuilder itemGroupBuilder = SlotGroup.ofItemHandler(inputNecessaryItemHandler, 3);
         itemGroupBuilder.startFromSlot(0);
         itemGroupBuilder.endAtSlot(8);
         itemGroupBuilder.phantom(true);
         itemGroupBuilder.background(getGUITextureSet().getItemSlot(), iDrawable);
+        itemGroupBuilder.slotCreator(i -> new BaseSlot(inputNecessaryItemHandler, i, true) {
+            @Override
+            public void putStack(ItemStack stack) {
+                if (GT_Utility.areStacksEqual(necessaryItemStack[i], stack)) {
+                    if (necessaryItemStack[i].stackSize == stack.stackSize) {
+                        return;
+                    }
+                }
+                necessaryItemStack[i] = stack;
+                needPatternSync = true;
+                slotWidgets[i].detectAndSendChanges(true);
+            }
+        });
         itemGroupBuilder.widgetCreator(slot -> {
             SlotWidget slotWidget = new SlotWidget(slot) {
                 @Override
                 protected void phantomClick(ClickData clickData, ItemStack cursorStack) {
-                    if (clickData.mouseButton != 0) {
-                        return;
-                    }
-                    if (cursorStack == null) {
-                        if (necessaryItemStack[slot.getSlotIndex()] == null) {
-                            return;
-                        }
-                        necessaryItemStack[slot.getSlotIndex()] = null;
-                        slotWidgets[slot.getSlotIndex()].getMcSlot().putStack(null);
-                        needPatternSync = true;
-                        for (int i = slot.getSlotIndex(); i < NECESSARY_MAX_SLOT - 1; i++) {
-                            necessaryItemStack[i] = necessaryItemStack[i + 1];
-                            slotWidgets[i].getMcSlot().putStack(necessaryItemStack[i + 1]);
-                        }
-                        if (necessaryItemStack[NECESSARY_MAX_SLOT - 1] != null) {
-                            necessaryItemStack[NECESSARY_MAX_SLOT - 1] = null;
-                            slotWidgets[NECESSARY_MAX_SLOT - 1].getMcSlot().putStack(null);
-                        }
-                        detectAndSendChangesAll();
-                        return;
-                    }
-                    ItemStack addItemStack = GT_Utility.copyAmount(0L, cursorStack);
 
-                    for (int i = 0; i < NECESSARY_MAX_SLOT; i++) {
-                        if (necessaryItemStack[i] == null) {
-                            necessaryItemStack[i] = addItemStack;
-                            slotWidgets[i].getMcSlot().putStack(addItemStack);
-                            needPatternSync = true;
-                            slotWidgets[i].detectAndSendChanges(true);
+                    switch (clickData.mouseButton) {
+                        case 0:
+                            if (cursorStack == null) {
+                                if (necessaryItemStack[slot.getSlotIndex()] == null) {
+                                    break;
+                                }
+                                slotWidgets[slot.getSlotIndex()].getMcSlot().putStack(null);
+                                for (int i = slot.getSlotIndex(); i < NECESSARY_MAX_SLOT - 1; i++) {
+                                    slotWidgets[i].getMcSlot().putStack(necessaryItemStack[i + 1]);
+                                }
+                                if (necessaryItemStack[NECESSARY_MAX_SLOT - 1] != null) {
+                                    slotWidgets[NECESSARY_MAX_SLOT - 1].getMcSlot().putStack(null);
+                                }
+                                break;
+                            }
+                            ItemStack addItemStack = GT_Utility.copyAmount(0L, cursorStack);
+                            for (int i = 0; i < NECESSARY_MAX_SLOT; i++) {
+                                if (necessaryItemStack[i] == null) {
+                                    slotWidgets[i].getMcSlot().putStack(addItemStack);
+                                    slotWidgets[i].detectAndSendChanges(true);
+                                    break;
+                                }
+                                if (GT_Utility.areStacksEqual(necessaryItemStack[i], addItemStack)) {
+                                    break;
+                                }
+                            }
                             break;
-                        }
-                        if (GT_Utility.areStacksEqual(necessaryItemStack[i], addItemStack)) {
+                        case 2:
+                            if (getContext().isClient()) {
+                                break;
+                            }
+                            if (necessaryItemStack[slot.getSlotIndex()] == null) {
+                                break;
+                            }
+                            if (getContext().isWindowOpen(CONFIGURATION_NUMBER_WINDOW_ID)) {
+                                getContext().closeWindow(CONFIGURATION_NUMBER_WINDOW_ID);
+                            }
+                            getContext().openSyncedWindow(CONFIGURATION_NUMBER_WINDOW_ID);
+                            setAmount = a -> {
+                                slotWidgets[slot.getSlotIndex()].getMcSlot().putStack(GT_Utility.copyAmount(a, necessaryItemStack[slot.getSlotIndex()]));
+                                needPatternSync = true;
+                                inAmount = a;
+                            };
+                            inAmount = necessaryItemStack[slot.getSlotIndex()].stackSize;
                             break;
-                        }
+                    }
+
+                }
+
+                @Override
+                public void buildTooltip(List<Text> tooltip) {
+                    super.buildTooltip(tooltip);
+                    if (necessaryItemStack[slot.getSlotIndex()] != null) {
+                        tooltip.add(Text.localised("modularui.item.amount", necessaryItemStack[slot.getSlotIndex()].stackSize, 64));
                     }
                 }
 
-                private void detectAndSendChangesAll() {
-                    for (int ii = 0; ii < NECESSARY_MAX_SLOT; ii++) {
-                        slotWidgets[ii].detectAndSendChanges(false);
-                    }
-                }
             };
-            slotWidget.getMcSlot().putStack(necessaryItemStack[slot.getSlotIndex()]);
+            //slotWidget.getMcSlot().putStack(necessaryItemStack[slot.getSlotIndex()]);
             slotWidgets[slot.getSlotIndex()] = slotWidget;
             return slotWidget;
         });
@@ -1008,7 +1069,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
         return builder.build();
     }
 
-    protected ModularWindow necessaryFluidConfigurationWindow(EntityPlayer player, FluidStack[] necessaryFluidStack, IDrawable iDrawable, FluidStackTank[] fluidStackTanks) {
+    protected ModularWindow necessaryFluidConfigurationWindow(EntityPlayer player, FluidStack[] necessaryFluidStack, IDrawable iDrawable) {
         final int WIDTH = 60;
         final int HEIGHT = 60;
         final int PARENT_WIDTH = getGUIWidth();
@@ -1025,10 +1086,20 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                 new Size(PARENT_WIDTH, PARENT_HEIGHT),
                 new Size(WIDTH, HEIGHT)).add(WIDTH - 3, 0)));
         FluidSlotWidget[] fluidSlotWidgets = new FluidSlotWidget[NECESSARY_MAX_SLOT];
+        Field field = null;
+        try {
+            field = FluidSlotWidget.class.getDeclaredField("phantom");
+        } catch (NoSuchFieldException e) {
+            throw new RuntimeException(e);
+        }
+        field.setAccessible(true);
         for (int i = 0; i < NECESSARY_MAX_SLOT; i++) {
-            FluidStackTank fluidTank = fluidStackTanks[i];
             int finalI = i;
-            FluidSlotWidget fluidSlotWidget = new FluidSlotWidget(fluidTank) {
+            FluidSlotWidget fluidSlotWidget = new FluidSlotWidget(new FluidStackTank(
+                () -> necessaryFluidStack[finalI],
+                fluid -> necessaryFluidStack[finalI] = fluid,
+                Integer.MAX_VALUE
+            )) {
                 static final int PACKET_EMPTY_CLICK = 6;
 
                 @Override
@@ -1048,11 +1119,28 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                     switch (id) {
                         case PACKET_EMPTY_CLICK:
                             ClickData clickData = ClickData.readPacket(buf);
-                            if (clickData.mouseButton != 0) {
-                                return;
+                            switch (clickData.mouseButton) {
+                                case 0:
+                                    clearTag();
+                                    break;
+                                case 2:
+                                    if (necessaryFluidStack[finalI] == null) {
+                                        break;
+                                    }
+                                    if (getContext().isWindowOpen(CONFIGURATION_NUMBER_WINDOW_ID)) {
+                                        getContext().closeWindow(CONFIGURATION_NUMBER_WINDOW_ID);
+                                    }
+                                    getContext().openSyncedWindow(CONFIGURATION_NUMBER_WINDOW_ID);
+                                    setAmount = a -> {
+                                        necessaryFluidStack[finalI] = GT_Utility.copyAmount(a, necessaryFluidStack[finalI]);
+                                        needPatternSync = true;
+                                        inAmount = a;
+                                        detectAndSendChangesAll();
+                                    };
+                                    inAmount = necessaryFluidStack[finalI].amount;
+                                    break;
                             }
-                            clearTag();
-                            break;
+
                     }
                     markForUpdate();
                 }
@@ -1081,9 +1169,6 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                         return;
                     }
                     if (heldItem == null) {
-                        //needPatternSync = needPatternSync || necessaryFluidStack[finalI] != null;
-                        //necessaryFluidStack[finalI] = null;
-                        //detectAndSendChanges(false);
                         clearTag();
                         return;
                     }
@@ -1109,15 +1194,58 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                 protected void tryScrollPhantom(int direction) {
                 }
 
+                @Override
+                public void buildTooltip(List<Text> tooltip) {
+                    super.buildTooltip(tooltip);
+                    if (necessaryFluidStack[finalI] != null) {
+                        tooltip.add(Text.localised("modularui.fluid.amount", necessaryFluidStack[finalI].amount, Integer.MAX_VALUE));
+                    }
+                }
+
+                private TextRenderer textRenderer;
+
+                @Override
+                public void draw(float partialTicks) {
+                    super.draw(partialTicks);
+                    if (necessaryFluidStack[finalI] != null && necessaryFluidStack[finalI].amount != 0) {
+                        String s = NumberFormat.formatLong(necessaryFluidStack[finalI].amount) + "L";
+                        textRenderer.setAlignment(Alignment.CenterLeft, size.width - getContentOffset().x - 1f);
+                        textRenderer.setPos((int) (getContentOffset().x + 0.5f), (int) (size.height - 4.5f));
+                        textRenderer.draw(s);
+                    }
+                }
+
+                @Override
+                public void onInit() {
+                    super.onInit();
+                    Field field;
+                    try {
+                        field = FluidSlotWidget.class.getDeclaredField("textRenderer");
+                    } catch (NoSuchFieldException e) {
+                        throw new RuntimeException(e);
+                    }
+                    field.setAccessible(true);
+                    try {
+                        textRenderer = (TextRenderer) field.get(this);
+                    } catch (IllegalAccessException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+
                 private void detectAndSendChangesAll() {
                     for (int ii = 0; ii < NECESSARY_MAX_SLOT; ii++) {
-                        fluidSlotWidgets[ii].detectAndSendChanges(false);
+                        fluidSlotWidgets[ii].detectAndSendChanges(true);
                     }
                 }
             };
             fluidSlotWidget.setBackground(getGUITextureSet().getItemSlot(), iDrawable);
             fluidSlotWidgets[i] = fluidSlotWidget;
             fluidSlotWidget.setPos(storedPos[i].add(3, 3));
+            try {
+                field.set(fluidSlotWidget, true);
+            } catch (IllegalAccessException e) {
+                throw new RuntimeException(e);
+            }
             builder.widget(fluidSlotWidget);
         }
         return builder.build();
@@ -1162,4 +1290,15 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
         }
     }
 
+    protected void closeAllWindow(Widget widget) {
+        if (widget.getContext().isClient()) {
+            return;
+        }
+        for (int i : ALL_WINDOW_ID) {
+            if (widget.getContext().isWindowOpen(i)) {
+                widget.getContext().closeWindow(i);
+            }
+        }
+        setAmount = null;
+    }
 }
