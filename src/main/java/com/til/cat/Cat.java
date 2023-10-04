@@ -12,6 +12,8 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
+import gregtech.api.interfaces.metatileentity.IMetaTileEntity;
+import gregtech.api.metatileentity.MetaTileEntity;
 import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -75,15 +77,23 @@ public class Cat {
                 if (!Modifier.isStatic(declaredField.getModifiers())) {
                     return;
                 }
-                if (!declaredField.getType().equals(ItemStack.class)) {
-                    continue;
-                }
                 declaredField.setAccessible(true);
-                try {
-                    itemStackList.add((ItemStack) declaredField.get(null));
-                } catch (IllegalAccessException e) {
-                    LOG.warn(e);
+                if (declaredField.getType().equals(ItemStack.class)) {
+                    try {
+                        itemStackList.add((ItemStack) declaredField.get(null));
+                    } catch (IllegalAccessException e) {
+                        LOG.warn(e);
+                    }
                 }
+                if (MetaTileEntity.class.isAssignableFrom(declaredField.getType())) {
+                    try {
+                        itemStackList.add(((MetaTileEntity) declaredField.get(null)).getStackForm(1));
+                    } catch (IllegalAccessException e) {
+                        LOG.warn(e);
+                    }
+                }
+
+
             }
         }
     };

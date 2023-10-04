@@ -5,6 +5,7 @@ import appeng.api.storage.data.IAEItemStack;
 import appeng.core.Api;
 import appeng.util.item.AEItemStack;
 import com.glodblock.github.loader.ItemAndBlockHolder;
+import gregtech.api.util.GT_Recipe;
 import net.minecraft.inventory.InventoryCrafting;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
@@ -14,6 +15,8 @@ import net.minecraft.world.World;
 public class GenerateCraftingPatternDetails implements ICraftingPatternDetails, Comparable<GenerateCraftingPatternDetails> {
 
     protected final ItemStack pattern;
+
+    protected final int gtRecipeHasCode;
 
     protected final IAEItemStack patternStackAe;
     protected final IAEItemStack[] inputs;
@@ -27,7 +30,8 @@ public class GenerateCraftingPatternDetails implements ICraftingPatternDetails, 
     protected int priority;
 
 
-    public GenerateCraftingPatternDetails(IAEItemStack[] inputs, IAEItemStack[] outputs, boolean substitute, boolean beSubstitute, boolean hasFluid) {
+    public GenerateCraftingPatternDetails(int gtRecipeHasCode, IAEItemStack[] inputs, IAEItemStack[] outputs, boolean substitute, boolean beSubstitute, boolean hasFluid) {
+        this.gtRecipeHasCode = gtRecipeHasCode;
         this.inputs = inputs;
         this.outputs = outputs;
         this.canSubstitute = substitute;
@@ -105,6 +109,10 @@ public class GenerateCraftingPatternDetails implements ICraftingPatternDetails, 
         return patternStackAe.hashCode();
     }
 
+    public int getGtRecipeHasCode() {
+        return gtRecipeHasCode;
+    }
+
     @Override
     public boolean equals(Object obj) {
         return obj instanceof GenerateCraftingPatternDetails && patternStackAe.equals(((GenerateCraftingPatternDetails) obj).patternStackAe);
@@ -120,6 +128,7 @@ public class GenerateCraftingPatternDetails implements ICraftingPatternDetails, 
         tag.setTag("in", writeStackArray(inputs));
         tag.setTag("out", writeStackArray(outputs));
         tag.setBoolean("beSubstitute", this.canBeSubstitute());
+        tag.setBoolean("canSubstitute", canSubstitute());
         pattern.setTagCompound(tag);
     }
 

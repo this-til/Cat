@@ -42,7 +42,9 @@ import com.gtnewhorizons.modularui.common.internal.wrapper.BaseSlot;
 import com.gtnewhorizons.modularui.common.widget.*;
 import com.gtnewhorizons.modularui.common.widget.textfield.TextFieldWidget;
 import com.til.cat.common.crafting_type.CraftingType;
+import com.til.cat.common.crafting_type.GenerateCraftingPatternDetails;
 import gregtech.api.GregTech_API;
+import gregtech.api.enums.ItemList;
 import gregtech.api.gui.modularui.GT_UIInfos;
 import gregtech.api.gui.modularui.GT_UITextures;
 import gregtech.api.interfaces.ITexture;
@@ -64,12 +66,14 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.network.PacketBuffer;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.StatCollector;
 import net.minecraft.world.World;
 import net.minecraftforge.common.util.Constants;
 import net.minecraftforge.common.util.ForgeDirection;
 import net.minecraftforge.fluids.FluidStack;
+import org.apache.commons.lang3.ArrayUtils;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
@@ -82,7 +86,7 @@ import static gregtech.api.enums.Textures.BlockIcons.OVERLAY_ME_CRAFTING_INPUT_B
 /***
  * 智能输入仓
  */
-public class GT_MetaTileEntity_Intelligence_Input_ME
+public class GT_MetaTileEntity_Intelligence_Cat_Hatch
     extends GT_MetaTileEntity_Hatch
     implements IDualInputHatch, IPowerChannelState, ICraftingProvider,
     IGridProxyable, IAddUIWidgets, IPriorityHost {
@@ -159,8 +163,6 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
     protected ItemStack[] inputVirtuallyItem = new ItemStack[NECESSARY_MAX_SLOT];
 
-    protected FluidStack[] outVirtuallyFluid = new FluidStack[NECESSARY_MAX_SLOT];
-
     protected boolean canSubstitute = true;
     protected boolean canBeSubstitute = true;
     protected boolean excludeProbability;
@@ -175,8 +177,6 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
     protected ArrayList<IDualInputInventory> dualInputInventories = new ArrayList<>();
 
-    protected List<ICraftingPatternDetails> craftingPatternDetailsList = new ArrayList<>();
-
     {
         dualInputInventories.add(new IDualInputInventory() {
             @Override
@@ -184,7 +184,10 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                 if (isEmptyInventory()) {
                     return new ItemStack[0];
                 }
-                return itemInventory.toArray(new ItemStack[0]);
+                if (inputVirtuallyItem[0] == null) {
+                    return itemInventory.toArray(new ItemStack[0]);
+                }
+                return ArrayUtils.addAll(itemInventory.toArray(new ItemStack[0]), inputVirtuallyItem);
             }
 
             @Override
@@ -196,26 +199,14 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
             }
 
         });
-        dualInputInventories.add(new IDualInputInventory() {
-            @Override
-            public ItemStack[] getItemInputs() {
-                if (inputVirtuallyItem[0] == null) {
-                    return new ItemStack[0];
-                }
-                return inputVirtuallyItem;
-            }
-
-            @Override
-            public FluidStack[] getFluidInputs() {
-                if (outVirtuallyFluid[0] == null) {
-                    return new FluidStack[0];
-                }
-                return outVirtuallyFluid;
-            }
-        });
     }
 
-    public GT_MetaTileEntity_Intelligence_Input_ME(int aID, String aName, String aNameRegional, CraftingType craftingType) {
+    protected List<GenerateCraftingPatternDetails> craftingPatternDetailsList = new ArrayList<>();
+
+    protected HashSet<Integer> disableGtRecipeHasCodeSet = new HashSet<>();
+
+
+    public GT_MetaTileEntity_Intelligence_Cat_Hatch(int aID, String aName, String aNameRegional, CraftingType craftingType) {
         super(
             aID,
             aName,
@@ -229,7 +220,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
         this.craftingType = craftingType;
     }
 
-    public GT_MetaTileEntity_Intelligence_Input_ME(String aName, int aTier, String[] aDescription, ITexture[][][] aTextures, CraftingType craftingType) {
+    public GT_MetaTileEntity_Intelligence_Cat_Hatch(String aName, int aTier, String[] aDescription, ITexture[][][] aTextures, CraftingType craftingType) {
         super(aName, aTier, 0, aDescription, aTextures);
         this.craftingType = craftingType;
     }
@@ -263,6 +254,30 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
     public boolean onRightclick(IGregTechTileEntity aBaseMetaTileEntity, EntityPlayer aPlayer) {
         GT_UIInfos.openGTTileEntityUI(aBaseMetaTileEntity, aPlayer);
         return true;
+    }
+
+    @Override
+    public void onLeftclick(IGregTechTileEntity aBaseMetaTileEntity, EntityPlayer aPlayer) {
+        if (!(aPlayer instanceof EntityPlayerMP)) {
+            return;
+        }
+
+        ItemStack dataStick = aPlayer.inventory.getCurrentItem();
+        if (!ItemList.Tool_DataStick.isStackEqual(dataStick, true, true)) {
+            return;
+        }
+
+        NBTTagCompound tag = new NBTTagCompound();
+        tag.setString("type", "Intelligence Cat Hatch");
+        tag.setInteger("x", aBaseMetaTileEntity.getXCoord());
+        tag.setInteger("y", aBaseMetaTileEntity.getYCoord());
+        tag.setInteger("z", aBaseMetaTileEntity.getZCoord());
+
+        dataStick.stackTagCompound = tag;
+        dataStick.setStackDisplayName(
+            "捕获一只猫猫 (" + aBaseMetaTileEntity
+                .getXCoord() + ", " + aBaseMetaTileEntity.getYCoord() + ", " + aBaseMetaTileEntity.getZCoord() + ")");
+        aPlayer.addChatMessage(new ChatComponentText("恭喜猫德学院抓获狮子猫！！"));
     }
 
     @Override
@@ -304,7 +319,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
     @Override
     public MetaTileEntity newMetaEntity(IGregTechTileEntity aTileEntity) {
-        return new GT_MetaTileEntity_Intelligence_Input_ME(mName, mTier, mDescriptionArray, mTextures, craftingType);
+        return new GT_MetaTileEntity_Intelligence_Cat_Hatch(mName, mTier, mDescriptionArray, mTextures, craftingType);
     }
 
     @Override
@@ -341,6 +356,14 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
             fluidInventoryNbt.appendTag(fluidStack.writeToNBT(new NBTTagCompound()));
         }
         aNBT.setTag("fluidInventory", fluidInventoryNbt);
+
+        int[] disableGtRecipeHasCodeArray = new int[disableGtRecipeHasCodeSet.size()];
+        int i = 0;
+        for (Integer integer : disableGtRecipeHasCodeSet) {
+            disableGtRecipeHasCodeArray[i] = integer;
+            i++;
+        }
+        aNBT.setIntArray("disableGtRecipeHasCodeSet", disableGtRecipeHasCodeArray);
 
         if (GregTech_API.mAE2) {
             getProxy().writeToNBT(aNBT);
@@ -381,6 +404,11 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
             fluidInventory.add(FluidStack.loadFluidStackFromNBT(fluidInventoryNbt.getCompoundTagAt(i)));
         }
 
+        disableGtRecipeHasCodeSet.clear();
+        for (int gtRecipeHasCodeSet : aNBT.getIntArray("disableGtRecipeHasCodeSet")) {
+            disableGtRecipeHasCodeSet.add(gtRecipeHasCodeSet);
+        }
+
         if (GregTech_API.mAE2) {
             getProxy().readFromNBT(aNBT);
         }
@@ -393,10 +421,21 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
     @Override
     public void provideCrafting(ICraftingProviderHelper craftingTracker) {
+        if (craftingType == null) {
+            return;
+        }
         craftingPatternDetailsList = craftingType.provideCrafting(this, craftingTracker);
-
-        for (ICraftingPatternDetails iCraftingPatternDetails : craftingPatternDetailsList) {
+        for (GenerateCraftingPatternDetails iCraftingPatternDetails : craftingPatternDetailsList) {
+            if (disableGtRecipeHasCodeSet.contains(iCraftingPatternDetails.getGtRecipeHasCode())) {
+                continue;
+            }
             craftingTracker.addCraftingOption(this, iCraftingPatternDetails);
+        }
+        for (int i = 0; i < NECESSARY_MAX_SLOT; i++) {
+            if (inputNecessaryItem[i] == null || inputNecessaryItem[i].stackSize != 0) {
+                inputVirtuallyItem[i] = null;
+            }
+            inputVirtuallyItem[i] = inputNecessaryItem[i];
         }
     }
 
@@ -1086,6 +1125,9 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                     if (necessaryItemStack[i].stackSize == stack.stackSize) {
                         return;
                     }
+                }
+                if (necessaryItemStack[i] == null && stack != null) {
+                    stack = GT_Utility.copyAmount(0L, stack);
                 }
                 necessaryItemStack[i] = stack;
                 needPatternSync = true;

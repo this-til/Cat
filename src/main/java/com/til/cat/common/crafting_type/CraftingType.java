@@ -1,18 +1,16 @@
 package com.til.cat.common.crafting_type;
 
-import appeng.api.networking.crafting.ICraftingPatternDetails;
 import appeng.api.networking.crafting.ICraftingProviderHelper;
 import appeng.api.storage.data.IAEItemStack;
 import appeng.util.item.AEItemStack;
 import com.glodblock.github.common.item.ItemFluidDrop;
-import com.til.cat.common.tileentities.machines.GT_MetaTileEntity_Intelligence_Input_ME;
+import com.til.cat.common.tileentities.machines.GT_MetaTileEntity_Intelligence_Cat_Hatch;
 import gregtech.api.util.GT_Recipe;
 import gregtech.api.util.GT_Utility;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.fluids.FluidStack;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 public enum CraftingType {
 
@@ -144,28 +142,40 @@ public enum CraftingType {
     public static final double REDUCE_PROBABILITY_OUT = 0.2;
 
     private final GT_Recipe.GT_Recipe_Map gtRecipeMap;
-    private GT_MetaTileEntity_Intelligence_Input_ME gt_metaTileEntity_intelligence_input_me;
+    private GT_MetaTileEntity_Intelligence_Cat_Hatch gt_metaTileEntity_intelligence_input_me;
     private ItemStack itemStack;
 
+    private Map<GT_Recipe, Integer> gtRecipeHasCodeMap ;
     private static int id = 18000;
 
     CraftingType(GT_Recipe.GT_Recipe_Map gtRecipeMap) {
         this.gtRecipeMap = gtRecipeMap;
     }
 
-    public void register() {
-        gt_metaTileEntity_intelligence_input_me = new GT_MetaTileEntity_Intelligence_Input_ME(
-            id++, "intelligence.input.me",
-            "Intelligence Cat Hatch",
+    public void init() {
+        gt_metaTileEntity_intelligence_input_me = new GT_MetaTileEntity_Intelligence_Cat_Hatch(
+            id++,
+            "intelligence.cat.hatch",
+            "智能猫仓",
             this);
         itemStack = gt_metaTileEntity_intelligence_input_me.getStackForm(1);
     }
 
-    public List<ICraftingPatternDetails> provideCrafting(GT_MetaTileEntity_Intelligence_Input_ME tile, ICraftingProviderHelper craftingProviderHelper) {
-        List<ICraftingPatternDetails> list = new ArrayList<>();
+    public void postInit() {
+    }
+
+    public List<GenerateCraftingPatternDetails> provideCrafting(GT_MetaTileEntity_Intelligence_Cat_Hatch tile, ICraftingProviderHelper craftingProviderHelper) {
+        List<GenerateCraftingPatternDetails> list = new ArrayList<>();
         if (gtRecipeMap == null) {
             return list;
         }
+        if (gtRecipeHasCodeMap == null) {
+            gtRecipeHasCodeMap = new HashMap<>();
+            for (GT_Recipe gt_recipe : gtRecipeMap.mRecipeList) {
+                gtRecipeHasCodeMap.put(gt_recipe, getGtRecipeHasCode(gt_recipe));
+            }
+        }
+
 
         ItemStack[] inputNecessaryItem = tile.getInputNecessaryItem();
         ItemStack[] outNecessaryItem = tile.getOutNecessaryItem();
@@ -295,6 +305,7 @@ public enum CraftingType {
                 break;
             }
             list.add(new GenerateCraftingPatternDetails(
+                gtRecipeHasCodeMap.get(gt_recipe),
                 inAeItemList.toArray(new IAEItemStack[0]),
                 outAeItemList.toArray(new IAEItemStack[0]),
                 tile.isCanSubstitute(),
@@ -309,7 +320,7 @@ public enum CraftingType {
         return gtRecipeMap;
     }
 
-    public GT_MetaTileEntity_Intelligence_Input_ME getGt_metaTileEntity_intelligence_input_me() {
+    public GT_MetaTileEntity_Intelligence_Cat_Hatch getGt_metaTileEntity_intelligence_input_me() {
         return gt_metaTileEntity_intelligence_input_me;
     }
 
@@ -373,6 +384,16 @@ public enum CraftingType {
         }
         return true;
     }
+
+
+    public static int getGtRecipeHasCode(GT_Recipe gt_recipe) {
+        int result = Arrays.hashCode(GT_Utility.stacksToIntArray(gt_recipe.mInputs));
+        result = 31 * result + Arrays.hashCode(GT_Utility.stacksToIntArray(gt_recipe.mOutputs));
+        result = 31 * result + Arrays.hashCode(gt_recipe.mFluidInputs);
+        result = 31 * result + Arrays.hashCode(gt_recipe.mFluidOutputs);
+        return result;
+    }
+
 }
 
 

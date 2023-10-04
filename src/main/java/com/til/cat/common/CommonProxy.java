@@ -15,10 +15,11 @@ public class CommonProxy {
     }
 
     public void init(FMLInitializationEvent event) {
-        Cat_Loader_MetaTileEntities.register();
+        Cat_Loader_MetaTileEntities.init();
     }
 
     public void postInit(FMLPostInitializationEvent event) {
+        Cat_Loader_MetaTileEntities.postInit();
     }
 
     public void serverStarting(FMLServerStartingEvent event) {
