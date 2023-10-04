@@ -16,6 +16,7 @@ import appeng.api.storage.data.IAEFluidStack;
 import appeng.api.storage.data.IAEItemStack;
 import appeng.api.util.AECableType;
 import appeng.api.util.DimensionalCoord;
+import appeng.helpers.IPriorityHost;
 import appeng.me.GridAccessException;
 import appeng.me.helpers.AENetworkProxy;
 import appeng.me.helpers.IGridProxyable;
@@ -23,10 +24,7 @@ import appeng.util.Platform;
 import appeng.util.ReadableNumberConverter;
 import com.glodblock.github.common.item.ItemFluidPacket;
 import com.google.common.collect.ImmutableList;
-import com.gtnewhorizons.modularui.api.GlStateManager;
-import com.gtnewhorizons.modularui.api.ModularUITextures;
 import com.gtnewhorizons.modularui.api.NumberFormat;
-import com.gtnewhorizons.modularui.api.drawable.GuiHelper;
 import com.gtnewhorizons.modularui.api.drawable.IDrawable;
 import com.gtnewhorizons.modularui.api.drawable.Text;
 import com.gtnewhorizons.modularui.api.drawable.TextRenderer;
@@ -40,14 +38,10 @@ import com.gtnewhorizons.modularui.api.screen.ModularWindow;
 import com.gtnewhorizons.modularui.api.screen.UIBuildContext;
 import com.gtnewhorizons.modularui.api.widget.Widget;
 import com.gtnewhorizons.modularui.common.fluid.FluidStackTank;
-import com.gtnewhorizons.modularui.common.internal.Theme;
 import com.gtnewhorizons.modularui.common.internal.wrapper.BaseSlot;
-import com.gtnewhorizons.modularui.common.internal.wrapper.ModularGui;
 import com.gtnewhorizons.modularui.common.widget.*;
 import com.gtnewhorizons.modularui.common.widget.textfield.TextFieldWidget;
 import com.til.cat.common.crafting_type.CraftingType;
-import cpw.mods.fml.relauncher.Side;
-import cpw.mods.fml.relauncher.SideOnly;
 import gregtech.api.GregTech_API;
 import gregtech.api.gui.modularui.GT_UIInfos;
 import gregtech.api.gui.modularui.GT_UITextures;
@@ -76,8 +70,6 @@ import net.minecraft.world.World;
 import net.minecraftforge.common.util.Constants;
 import net.minecraftforge.common.util.ForgeDirection;
 import net.minecraftforge.fluids.FluidStack;
-import org.apache.commons.lang3.ArrayUtils;
-import org.lwjgl.opengl.GL11;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
@@ -93,7 +85,7 @@ import static gregtech.api.enums.Textures.BlockIcons.OVERLAY_ME_CRAFTING_INPUT_B
 public class GT_MetaTileEntity_Intelligence_Input_ME
     extends GT_MetaTileEntity_Hatch
     implements IDualInputHatch, IPowerChannelState, ICraftingProvider,
-    IGridProxyable, IAddUIWidgets, IDualInputInventory {
+    IGridProxyable, IAddUIWidgets, IPriorityHost {
 
     public static final int NECESSARY_MAX_SLOT = 9;
     protected static final int INPUT_NECESSARY_ITEM_WINDOW_ID = 10;
@@ -102,13 +94,15 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
     protected static final int OUT_NECESSARY_FLUID_WINDOW_ID = 13;
     protected static final int CONFIGURATION_MULTIPLE_WINDOW_ID = 14;
     protected static final int CONFIGURATION_NUMBER_WINDOW_ID = 15;
+    protected static final int CONFIGURATION_PRIORITY_WINDOW = 16;
     protected static final int[] ALL_WINDOW_ID = new int[]{
         INPUT_NECESSARY_ITEM_WINDOW_ID,
         OUT_NECESSARY_ITEM_WINDOW_ID,
         INPUT_NECESSARY_FLUID_WINDOW_ID,
         OUT_NECESSARY_FLUID_WINDOW_ID,
         CONFIGURATION_MULTIPLE_WINDOW_ID,
-        CONFIGURATION_NUMBER_WINDOW_ID
+        CONFIGURATION_NUMBER_WINDOW_ID,
+        CONFIGURATION_PRIORITY_WINDOW
     };
 
     protected static final Pos2d[] storedPos = new Pos2d[]{
@@ -124,6 +118,8 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
     };
 
     protected int multiple = 1;
+
+    protected int priority;
 
     @Nullable
     protected CraftingType craftingType;
@@ -160,6 +156,11 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
     protected List<ItemStack> itemInventory = new ArrayList<>();
     protected List<FluidStack> fluidInventory = new ArrayList<>();
 
+
+    protected ItemStack[] inputVirtuallyItem = new ItemStack[NECESSARY_MAX_SLOT];
+
+    protected FluidStack[] outVirtuallyFluid = new FluidStack[NECESSARY_MAX_SLOT];
+
     protected boolean canSubstitute = true;
     protected boolean canBeSubstitute = true;
     protected boolean excludeProbability;
@@ -177,7 +178,41 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
     protected List<ICraftingPatternDetails> craftingPatternDetailsList = new ArrayList<>();
 
     {
-        dualInputInventories.add(this);
+        dualInputInventories.add(new IDualInputInventory() {
+            @Override
+            public ItemStack[] getItemInputs() {
+                if (isEmptyInventory()) {
+                    return new ItemStack[0];
+                }
+                return itemInventory.toArray(new ItemStack[0]);
+            }
+
+            @Override
+            public FluidStack[] getFluidInputs() {
+                if (isEmptyInventory()) {
+                    return new FluidStack[0];
+                }
+                return fluidInventory.toArray(new FluidStack[0]);
+            }
+
+        });
+        dualInputInventories.add(new IDualInputInventory() {
+            @Override
+            public ItemStack[] getItemInputs() {
+                if (inputVirtuallyItem[0] == null) {
+                    return new ItemStack[0];
+                }
+                return inputVirtuallyItem;
+            }
+
+            @Override
+            public FluidStack[] getFluidInputs() {
+                if (outVirtuallyFluid[0] == null) {
+                    return new FluidStack[0];
+                }
+                return outVirtuallyFluid;
+            }
+        });
     }
 
     public GT_MetaTileEntity_Intelligence_Input_ME(int aID, String aName, String aNameRegional, CraftingType craftingType) {
@@ -294,7 +329,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
         aNBT.setTag("outNecessaryItem", writeStackArray(outNecessaryItem));
         aNBT.setTag("inputNecessaryFluid", writeStackArray(inputNecessaryFluid));
         aNBT.setTag("outNecessaryFluid", writeStackArray(outNecessaryFluid));
-
+        aNBT.setInteger("priority", priority);
         NBTTagList itemInventoryNbt = new NBTTagList();
         for (ItemStack itemStack : this.itemInventory) {
             itemInventoryNbt.appendTag(GT_Utility.saveItem(itemStack));
@@ -320,6 +355,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
         canSubstitute = aNBT.getBoolean("canSubstitute");
         canBeSubstitute = aNBT.getBoolean("canBeSubstitute");
         excludeProbability = aNBT.getBoolean("excludeProbability");
+        priority = aNBT.getInteger("priority");
 
         multiple = aNBT.getInteger("multiple");
         multiple = Math.max(multiple, 1);
@@ -404,6 +440,16 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
             requestSource = new MachineSource((IActionHost) getBaseMetaTileEntity());
         }
         return requestSource;
+    }
+
+    @Override
+    public int getPriority() {
+        return priority;
+    }
+
+    @Override
+    public void setPriority(int newValue) {
+        this.priority = newValue;
     }
 
     protected void refundAll() throws GridAccessException {
@@ -584,22 +630,6 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
 
     @Override
-    public ItemStack[] getItemInputs() {
-        if (isEmptyInventory()) {
-            return new ItemStack[0];
-        }
-        return ArrayUtils.addAll(itemInventory.toArray(new ItemStack[0]), inputNecessaryItem);
-    }
-
-    @Override
-    public FluidStack[] getFluidInputs() {
-        if (isEmptyInventory()) {
-            return new FluidStack[0];
-        }
-        return fluidInventory.toArray(new FluidStack[0]);
-    }
-
-    @Override
     public void gridChanged() {
         needPatternSync = true;
     }
@@ -707,12 +737,13 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
     @Override
     public void addUIWidgets(ModularWindow.Builder builder, UIBuildContext buildContext) {
-        buildContext.addSyncedWindow(INPUT_NECESSARY_ITEM_WINDOW_ID, player -> necessaryItemConfigurationWindow(player, inputNecessaryItem, GT_UITextures.PICTURE_ITEM_IN));
-        buildContext.addSyncedWindow(OUT_NECESSARY_ITEM_WINDOW_ID, player -> necessaryItemConfigurationWindow(player, outNecessaryItem, GT_UITextures.PICTURE_ITEM_OUT));
-        buildContext.addSyncedWindow(INPUT_NECESSARY_FLUID_WINDOW_ID, player -> necessaryFluidConfigurationWindow(player, inputNecessaryFluid, GT_UITextures.PICTURE_FLUID_IN));
-        buildContext.addSyncedWindow(OUT_NECESSARY_FLUID_WINDOW_ID, player -> necessaryFluidConfigurationWindow(player, outNecessaryFluid, GT_UITextures.PICTURE_FLUID_OUT));
+        buildContext.addSyncedWindow(INPUT_NECESSARY_ITEM_WINDOW_ID, player -> createNecessaryItemConfigurationWindow(player, inputNecessaryItem, GT_UITextures.PICTURE_ITEM_IN));
+        buildContext.addSyncedWindow(OUT_NECESSARY_ITEM_WINDOW_ID, player -> createNecessaryItemConfigurationWindow(player, outNecessaryItem, GT_UITextures.PICTURE_ITEM_OUT));
+        buildContext.addSyncedWindow(INPUT_NECESSARY_FLUID_WINDOW_ID, player -> createNecessaryFluidConfigurationWindow(player, inputNecessaryFluid, GT_UITextures.PICTURE_FLUID_IN));
+        buildContext.addSyncedWindow(OUT_NECESSARY_FLUID_WINDOW_ID, player -> createNecessaryFluidConfigurationWindow(player, outNecessaryFluid, GT_UITextures.PICTURE_FLUID_OUT));
         buildContext.addSyncedWindow(CONFIGURATION_MULTIPLE_WINDOW_ID, this::createConfigurationMultipleWindow);
-        buildContext.addSyncedWindow(CONFIGURATION_NUMBER_WINDOW_ID, this::configurationNumberWindow);
+        buildContext.addSyncedWindow(CONFIGURATION_NUMBER_WINDOW_ID, this::createConfigurationNumberWindow);
+        buildContext.addSyncedWindow(CONFIGURATION_PRIORITY_WINDOW, this::createConfigurationPriorityWindow);
         {
             ButtonWidget itemInButtonWidget = new ButtonWidget();
 
@@ -723,7 +754,9 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                 }
             });
             itemInButtonWidget.setPlayClickSound(true);
-            itemInButtonWidget.setBackground(GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_ITEM_IN);
+            itemInButtonWidget.setBackground(() -> itemInButtonWidget.getContext().isWindowOpen(INPUT_NECESSARY_ITEM_WINDOW_ID) ?
+                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.PICTURE_ITEM_IN}
+                : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_ITEM_IN});
             itemInButtonWidget.addTooltips(ImmutableList.of("打开输入物品限制配置窗口"));
             itemInButtonWidget.setSize(16, 16);
             itemInButtonWidget.setPos(7 + 18 * 0, 9);
@@ -741,7 +774,9 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                 }
             });
             itemOutButtonWidget.setPlayClickSound(true);
-            itemOutButtonWidget.setBackground(GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_ITEM_OUT);
+            itemOutButtonWidget.setBackground(() -> itemOutButtonWidget.getContext().isWindowOpen(OUT_NECESSARY_ITEM_WINDOW_ID) ?
+                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.PICTURE_ITEM_OUT}
+                : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_ITEM_OUT});
             itemOutButtonWidget.addTooltips(ImmutableList.of("打开输出物品限制配置窗口"));
             itemOutButtonWidget.setSize(16, 16);
             itemOutButtonWidget.setPos(7 + 18 * 1, 9);
@@ -760,7 +795,9 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                 }
             });
             fluidInButtonWidget.setPlayClickSound(true);
-            fluidInButtonWidget.setBackground(GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_FLUID_IN);
+            fluidInButtonWidget.setBackground(() -> fluidInButtonWidget.getContext().isWindowOpen(INPUT_NECESSARY_FLUID_WINDOW_ID) ?
+                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.PICTURE_FLUID_IN}
+                : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_FLUID_IN});
             fluidInButtonWidget.addTooltips(ImmutableList.of("打开输入流体限制配置窗口"));
             fluidInButtonWidget.setSize(16, 16);
             fluidInButtonWidget.setPos(7 + 18 * 2, 9);
@@ -777,10 +814,11 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                     closeAllWindow(widget);
                     widget.getContext().openSyncedWindow(OUT_NECESSARY_FLUID_WINDOW_ID);
                 }
-
             });
             fluidOutButtonWidget.setPlayClickSound(true);
-            fluidOutButtonWidget.setBackground(GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_FLUID_OUT);
+            fluidOutButtonWidget.setBackground(() -> fluidOutButtonWidget.getContext().isWindowOpen(OUT_NECESSARY_FLUID_WINDOW_ID) ?
+                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.PICTURE_FLUID_OUT}
+                : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_FLUID_OUT});
             fluidOutButtonWidget.addTooltips(ImmutableList.of("打开输出流体限制配置窗口"));
             fluidOutButtonWidget.setSize(16, 16);
             fluidOutButtonWidget.setPos(7 + 18 * 3, 9);
@@ -799,7 +837,9 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                 }
             });
             multipleButtonWidget.setPlayClickSound(true);
-            multipleButtonWidget.setBackground(GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_DOWN_TIERING_OFF);
+            multipleButtonWidget.setBackground(() -> multipleButtonWidget.getContext().isWindowOpen(CONFIGURATION_MULTIPLE_WINDOW_ID) ?
+                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_DOWN_TIERING_OFF}
+                : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_DOWN_TIERING_OFF});
             multipleButtonWidget.addTooltips(ImmutableList.of(
                 "打开样板放大参数配置窗口",
                 "根据此处设置参数按比例放大输入输出物品/流体数量",
@@ -812,6 +852,26 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
             multipleButtonWidget.setPos(7 + 18 * 4, 9);
 
             builder.widget(multipleButtonWidget);
+        }
+
+        {
+            ButtonWidget buttonWidget = new ButtonWidget();
+            buttonWidget.setOnClick((clickData, widget) -> {
+                if (clickData.mouseButton == 0) {
+                    closeAllWindow(widget);
+                    widget.getContext().openSyncedWindow(CONFIGURATION_PRIORITY_WINDOW);
+                }
+            });
+            buttonWidget.setPlayClickSound(true);
+            buttonWidget.setBackground(() -> buttonWidget.getContext().isWindowOpen(CONFIGURATION_PRIORITY_WINDOW) ?
+                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_BATCH_MODE_ON}
+                : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_BATCH_MODE_ON});
+            buttonWidget.addTooltips(ImmutableList.of("配置优先级"));
+            buttonWidget.setSize(16, 16);
+            buttonWidget.setPos(7 + 18 * 5, 9);
+
+
+            builder.widget(buttonWidget);
         }
 
         {
@@ -828,7 +888,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
             exportButtonWidget.setBackground(GT_UITextures.BUTTON_STANDARD, GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_EXPORT);
             exportButtonWidget.addTooltips(ImmutableList.of("返回所有物品到AE"));
             exportButtonWidget.setSize(16, 16);
-            exportButtonWidget.setPos(7 + 18 * 5, 9);
+            exportButtonWidget.setPos(7 + 18 * 6, 9);
 
 
             builder.widget(exportButtonWidget);
@@ -892,8 +952,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
     protected int inAmount;
 
-
-    protected ModularWindow configurationNumberWindow(final EntityPlayer player) {
+    protected ModularWindow createConfigurationNumberWindow(final EntityPlayer player) {
         final int WIDTH = 78;
         final int HEIGHT = 40;
         final int PARENT_WIDTH = getGUIWidth();
@@ -915,6 +974,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                 new TextFieldWidget().setSetterInt(val -> {
                         if (setAmount != null) {
                             setAmount.accept(val);
+                            needPatternSync = true;
                         }
                     })
                     .setGetterInt(() -> inAmount)
@@ -927,6 +987,39 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                     .setBackground(GT_UITextures.BACKGROUND_TEXT_FIELD));
         return builder.build();
 
+    }
+
+    protected ModularWindow createConfigurationPriorityWindow(final EntityPlayer player) {
+        final int WIDTH = 78;
+        final int HEIGHT = 40;
+        final int PARENT_WIDTH = getGUIWidth();
+        final int PARENT_HEIGHT = getGUIHeight();
+        ModularWindow.Builder builder = ModularWindow.builder(WIDTH, HEIGHT);
+        builder.setBackground(GT_UITextures.BACKGROUND_SINGLEBLOCK_DEFAULT);
+        builder.setGuiTint(getGUIColorization());
+        builder.setDraggable(true);
+        builder.setPos(
+            (size, window) -> Alignment.Center.getAlignedPos(size, new Size(PARENT_WIDTH, PARENT_HEIGHT))
+                .add(
+                    Alignment.TopRight.getAlignedPos(new Size(PARENT_WIDTH, PARENT_HEIGHT), new Size(WIDTH, HEIGHT))
+                        .add(WIDTH - 3, 0)));
+        builder.widget(
+                new TextWidget("优先级").setPos(3, 2)
+                    .setSize(74, 14))
+            .widget(
+                new TextFieldWidget().setSetterInt(val -> {
+                        multiple = val;
+                        needPatternSync = true;
+                    })
+                    .setGetterInt(() -> multiple)
+                    .setNumbers(Integer.MIN_VALUE, Integer.MAX_VALUE)
+                    .setOnScrollNumbers(1, 1, 64)
+                    .setTextAlignment(Alignment.Center)
+                    .setTextColor(Color.WHITE.normal)
+                    .setSize(36, 18)
+                    .setPos(19, 18)
+                    .setBackground(GT_UITextures.BACKGROUND_TEXT_FIELD));
+        return builder.build();
     }
 
     protected ModularWindow createConfigurationMultipleWindow(final EntityPlayer player) {
@@ -962,7 +1055,8 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
         return builder.build();
     }
 
-    protected ModularWindow necessaryItemConfigurationWindow(EntityPlayer player, ItemStack[] necessaryItemStack, IDrawable iDrawable) {
+
+    protected ModularWindow createNecessaryItemConfigurationWindow(EntityPlayer player, ItemStack[] necessaryItemStack, IDrawable iDrawable) {
         final int WIDTH = 60;
         final int HEIGHT = 60;
         final int PARENT_WIDTH = getGUIWidth();
@@ -1005,6 +1099,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
 
                     switch (clickData.mouseButton) {
                         case 0:
+                        case 1:
                             if (cursorStack == null) {
                                 if (necessaryItemStack[slot.getSlotIndex()] == null) {
                                     break;
@@ -1069,7 +1164,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
         return builder.build();
     }
 
-    protected ModularWindow necessaryFluidConfigurationWindow(EntityPlayer player, FluidStack[] necessaryFluidStack, IDrawable iDrawable) {
+    protected ModularWindow createNecessaryFluidConfigurationWindow(EntityPlayer player, FluidStack[] necessaryFluidStack, IDrawable iDrawable) {
         final int WIDTH = 60;
         final int HEIGHT = 60;
         final int PARENT_WIDTH = getGUIWidth();
@@ -1121,6 +1216,7 @@ public class GT_MetaTileEntity_Intelligence_Input_ME
                             ClickData clickData = ClickData.readPacket(buf);
                             switch (clickData.mouseButton) {
                                 case 0:
+                                case 1:
                                     clearTag();
                                     break;
                                 case 2:

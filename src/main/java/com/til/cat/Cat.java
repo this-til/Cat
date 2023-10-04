@@ -2,6 +2,7 @@ package com.til.cat;
 
 import com.til.cat.common.CommonProxy;
 
+import com.til.cat.common.crafting_type.CraftingType;
 import com.til.cat.common.loaders.Cat_Loader_MetaTileEntities;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
@@ -58,13 +59,18 @@ public class Cat {
 
         @SideOnly(Side.CLIENT)
         public ItemStack getIconItemStack() {
-            return Cat_Loader_MetaTileEntities.GT_MetaTileEntity_Intelligence_Input_ME_COMPRESSOR;
+            return CraftingType.NULL.getItemStack();
         }
 
         @Override
         public void displayAllReleventItems(List list) {
             super.displayAllReleventItems(list);
             List<ItemStack> itemStackList = (List<ItemStack>) list;
+
+            for (CraftingType value : CraftingType.values()) {
+                itemStackList.add(value.getItemStack());
+            }
+
             for (Field declaredField : cat_loader_metaTileEntitiesClass.getDeclaredFields()) {
                 if (!Modifier.isStatic(declaredField.getModifiers())) {
                     return;
