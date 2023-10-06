@@ -193,6 +193,15 @@ public enum CraftingType {
 
         c:
         for (GT_Recipe gt_recipe : gtRecipeMap.mRecipeList) {
+            if (!gt_recipe.mEnabled) {
+                continue;
+            }
+            if (gt_recipe.mHidden) {
+                continue;
+            }
+            if (gt_recipe.mFakeRecipe) {
+                continue;
+            }
             /*if (!hasInputNecessaryItem && needCircuit(gt_recipe.mInputs)) {
                 continue;
             }*/
@@ -212,7 +221,7 @@ public enum CraftingType {
             if (inItemOreDictionaryScreen != null) {
                 for (ItemStack mInput : gt_recipe.mInputs) {
                     if (mInput == null || mInput.stackSize <= 0) {
-                        continue ;
+                        continue;
                     }
                     if (!inItemOreDictionaryScreen.test(mInput)) {
                         continue c;
@@ -225,7 +234,7 @@ public enum CraftingType {
             if (outItemOreDictionaryScreen != null) {
                 for (ItemStack mInput : gt_recipe.mOutputs) {
                     if (mInput == null || mInput.stackSize <= 0) {
-                        continue ;
+                        continue;
                     }
                     if (!outItemOreDictionaryScreen.test(mInput)) {
                         continue c;

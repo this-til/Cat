@@ -47,7 +47,6 @@ public class GenerateCraftingPatternDetails implements ICraftingPatternDetails, 
 
     @Override
     public ItemStack getPattern() {
-        //TODO
         return pattern;
     }
 

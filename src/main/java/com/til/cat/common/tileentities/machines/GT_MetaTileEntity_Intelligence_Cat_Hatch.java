@@ -88,6 +88,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -487,6 +488,7 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
 
         craftingPatternDetailsList = craftingType.provideCrafting(this, craftingTracker);
         for (GenerateCraftingPatternDetails iCraftingPatternDetails : craftingPatternDetailsList) {
+            iCraftingPatternDetails.setPriority(getPriority());
             if (disableGtRecipeHasCodeSet.contains(iCraftingPatternDetails.getGtRecipeHasCode())) {
                 continue;
             }
@@ -1165,6 +1167,7 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
 
     protected ModularWindow createConfigurationTemplateDisable(EntityPlayer player) {
         AtomicInteger page = new AtomicInteger();
+        AtomicBoolean isInit = new AtomicBoolean();
 
         final int WIDTH = 114;
         final int HEIGHT = 132;
@@ -1175,7 +1178,6 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
         ItemStackHandler itemStackHandler = new ItemStackHandler(MAX_SLOT);
         SlotWidget[] slotWidgets = new SlotWidget[MAX_SLOT];
         List<GenerateCraftingPatternDetails> useGenerateCraftingPatternDetails = new ArrayList<>(craftingPatternDetailsList);
-
         ModularWindow.Builder builder = ModularWindow.builder(WIDTH, HEIGHT);
         builder.setBackground(GT_UITextures.BACKGROUND_SINGLEBLOCK_DEFAULT);
         builder.setGuiTint(getGUIColorization());
@@ -1208,17 +1210,19 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
             itemGroupBuilder.endAtSlot(MAX_SLOT - 1);
             itemGroupBuilder.phantom(true);
             itemGroupBuilder.background(getGUITextureSet().getItemSlot(), GT_UITextures.OVERLAY_SLOT_PATTERN_ME);
-            itemGroupBuilder.slotCreator(i -> new BaseSlot(itemStackHandler, 1) {
-                @Override
-                public void putStack(ItemStack stack) {
-                    super.putStack(stack);
-                    slotWidgets[i].detectAndSendChanges(true);
-                }
-            }.disableShiftInsert());
+            itemGroupBuilder.slotCreator(i -> new BaseSlot(itemStackHandler, i, true).disableShiftInsert());
             itemGroupBuilder.widgetCreator(slot -> {
                 SlotWidget slotWidget;
                 slotWidget = new SlotWidget(slot) {
-                    boolean isDisable;
+
+                    @Override
+                    public void onInit() {
+                        super.onInit();
+                        if (!isInit.get()) {
+                            isInit.set(false);
+                            upTemplateDisableItemStackHandler(useGenerateCraftingPatternDetails, slotWidgets, page);
+                        }
+                    }
 
                     @Override
                     protected ItemStack getItemStackForRendering(Slot slotIn) {
@@ -1230,15 +1234,6 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
                         return output != null ? output : stack;
                     }
 
-                    @Override
-                    public void readOnClient(int id, PacketBuffer buf) {
-                        super.readOnClient(id, buf);
-                        switch (id) {
-                            case SYNCHRONOUS_TEMPLATE_DISABLE:
-                                isDisable = buf.readBoolean();
-                                break;
-                        }
-                    }
 
                     @Override
                     protected void phantomClick(ClickData clickData, ItemStack cursorStack) {
@@ -1264,11 +1259,13 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
 
                     @SideOnly(Side.CLIENT)
                     protected void drawSlot(Slot slotIn, boolean drawStackSize) {
-                        int x = slotIn.xDisplayPosition;
-                        int y = slotIn.yDisplayPosition;
                         super.drawSlot(slotIn, drawStackSize);
-                        if (isDisable) {
-                            GT_UITextures.OVERLAY_BUTTON_DISABLE.draw(x, y, 16, 16);
+                        ItemStack itemStack = slotIn.getStack();
+                        if (itemStack == null) {
+                            return;
+                        }
+                        if (itemStack.getTagCompound().getBoolean("isDisable")) {
+                            GT_UITextures.OVERLAY_BUTTON_DISABLE.draw(1, 1, 16, 16);
                         }
                     }
 
@@ -1276,6 +1273,7 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
                 slotWidgets[slot.getSlotIndex()] = slotWidget;
                 return slotWidget;
             });
+
             builder.widget(itemGroupBuilder.build().setPos(3, 3));
         }
 
@@ -1292,31 +1290,32 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
                 });
                 buttonWidget.setBackground(GT_UITextures.OVERLAY_BUTTON_ARROW_GREEN_UP);
                 buttonWidget.setPlayClickSound(true);
-                buttonWidget.addTooltips(ImmutableList.of("上一页"));
-                buttonWidget.setSize(16, 16);
+                //buttonWidget.addTooltips(ImmutableList.of("上一页"));
+                buttonWidget.setSize(18, 18);
                 buttonWidget.setPos(3, 111);
                 builder.widget(buttonWidget);
             }
             {
                 TextWidget textWidget = TextWidget.dynamicText(() -> new Text(String.valueOf(page.get())));
-                textWidget.setSize(16, 16);
+                textWidget.setSize(18, 18);
                 textWidget.setPos(45, 111);
                 builder.widget(textWidget);
             }
             {
                 ButtonWidget buttonWidget = new ButtonWidget();
                 buttonWidget.setOnClick((clickData, widget) -> {
-                    if (page.get() + 1 < craftingPatternDetailsList.size()) {
+                    if ((page.get() + 1) * MAX_SLOT < craftingPatternDetailsList.size()) {
                         page.set(page.get() + 1);
                     }
                     if (!widget.getContext().isClient()) {
                         upTemplateDisableItemStackHandler(useGenerateCraftingPatternDetails, slotWidgets, page);
                     }
+                    needPatternSync = true;
                 });
                 buttonWidget.setBackground(GT_UITextures.OVERLAY_BUTTON_ARROW_GREEN_DOWN);
                 buttonWidget.setPlayClickSound(true);
-                buttonWidget.addTooltips(ImmutableList.of("下一页"));
-                buttonWidget.setSize(16, 16);
+                //buttonWidget.addTooltips(ImmutableList.of("下一页"));
+                buttonWidget.setSize(18, 18);
                 buttonWidget.setPos(93, 111);
                 builder.widget(buttonWidget);
             }
@@ -1331,7 +1330,6 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
         return builder.build();
     }
 
-    public static final int SYNCHRONOUS_TEMPLATE_DISABLE = 1000;
 
     protected void upTemplateDisableItemStackHandler(List<GenerateCraftingPatternDetails> useGenerateCraftingPatternDetails, SlotWidget[] slotWidgets, AtomicInteger page) {
         final int MAX_SLOT = 6 * 6;
@@ -1339,10 +1337,20 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
             int ii = page.get() * MAX_SLOT + i;
             if (ii >= useGenerateCraftingPatternDetails.size()) {
                 slotWidgets[i].getMcSlot().putStack(null);
-                slotWidgets[i].syncToClient(SYNCHRONOUS_TEMPLATE_DISABLE, p -> p.writeBoolean(true));
+                //slotWidgets[i].syncToClient(SYNCHRONOUS_TEMPLATE_DISABLE, p -> p.writeBoolean(false));
             } else {
-                slotWidgets[i].getMcSlot().putStack(useGenerateCraftingPatternDetails.get(ii).getPattern());
-                slotWidgets[i].syncToClient(SYNCHRONOUS_TEMPLATE_DISABLE, p -> p.writeBoolean(disableGtRecipeHasCodeSet.contains(useGenerateCraftingPatternDetails.get(ii).getGtRecipeHasCode())));
+                ItemStack itemStack;
+                if (disableGtRecipeHasCodeSet.contains(useGenerateCraftingPatternDetails.get(ii).getGtRecipeHasCode())) {
+                    itemStack = useGenerateCraftingPatternDetails.get(ii).getPattern().copy();
+                    itemStack.getTagCompound().setBoolean("isDisable", true);
+                } else {
+                    itemStack = useGenerateCraftingPatternDetails.get(ii).getPattern();
+                }
+                slotWidgets[i].getMcSlot().putStack(itemStack);
+                //slotWidgets[i].syncToClient(SYNCHRONOUS_TEMPLATE_DISABLE, p -> p.writeBoolean(disableGtRecipeHasCodeSet.contains(useGenerateCraftingPatternDetails.get(ii).getGtRecipeHasCode())));
+            }
+            if (slotWidgets[i].getWindow() != null) {
+                slotWidgets[i].detectAndSendChanges(false);
             }
         }
     }
