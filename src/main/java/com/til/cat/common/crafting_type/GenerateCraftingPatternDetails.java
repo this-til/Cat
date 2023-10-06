@@ -17,6 +17,7 @@ public class GenerateCraftingPatternDetails implements ICraftingPatternDetails, 
     protected final ItemStack pattern;
 
     protected final int gtRecipeHasCode;
+    protected final GT_Recipe gtRecipe;
 
     protected final IAEItemStack patternStackAe;
     protected final IAEItemStack[] inputs;
@@ -30,8 +31,9 @@ public class GenerateCraftingPatternDetails implements ICraftingPatternDetails, 
     protected int priority;
 
 
-    public GenerateCraftingPatternDetails(int gtRecipeHasCode, IAEItemStack[] inputs, IAEItemStack[] outputs, boolean substitute, boolean beSubstitute, boolean hasFluid) {
+    public GenerateCraftingPatternDetails(int gtRecipeHasCode, GT_Recipe gtRecipe, IAEItemStack[] inputs, IAEItemStack[] outputs, boolean substitute, boolean beSubstitute, boolean hasFluid) {
         this.gtRecipeHasCode = gtRecipeHasCode;
+        this.gtRecipe = gtRecipe;
         this.inputs = inputs;
         this.outputs = outputs;
         this.canSubstitute = substitute;
@@ -111,6 +113,10 @@ public class GenerateCraftingPatternDetails implements ICraftingPatternDetails, 
 
     public int getGtRecipeHasCode() {
         return gtRecipeHasCode;
+    }
+
+    public GT_Recipe getGtRecipe() {
+        return gtRecipe;
     }
 
     @Override

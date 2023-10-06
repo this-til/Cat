@@ -11,6 +11,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraftforge.fluids.FluidStack;
 
 import java.util.*;
+import java.util.function.Predicate;
 
 public enum CraftingType {
 
@@ -145,7 +146,7 @@ public enum CraftingType {
     private GT_MetaTileEntity_Intelligence_Cat_Hatch gt_metaTileEntity_intelligence_input_me;
     private ItemStack itemStack;
 
-    private Map<GT_Recipe, Integer> gtRecipeHasCodeMap ;
+    private Map<GT_Recipe, Integer> gtRecipeHasCodeMap;
     private static int id = 18000;
 
     CraftingType(GT_Recipe.GT_Recipe_Map gtRecipeMap) {
@@ -182,11 +183,13 @@ public enum CraftingType {
         FluidStack[] inputNecessaryFluid = tile.getInputNecessaryFluid();
         FluidStack[] outNecessaryFluid = tile.getOutNecessaryFluid();
 
+        Predicate<ItemStack> inItemOreDictionaryScreen = tile.getInItemOreDictionaryScreen();
+        Predicate<ItemStack> outItemOreDictionaryScreen = tile.getOutItemOreDictionaryScreen();
+
         boolean hasInputNecessaryItem = inputNecessaryItem[0] != null;
         boolean hasOutNecessaryItem = outNecessaryItem[0] != null;
         boolean hasInputNecessaryFluid = inputNecessaryFluid[0] != null;
         boolean hasOutNecessaryFluid = outNecessaryFluid[0] != null;
-
 
         c:
         for (GT_Recipe gt_recipe : gtRecipeMap.mRecipeList) {
@@ -206,8 +209,28 @@ public enum CraftingType {
             if (hasInputNecessaryItem && !hasItem(inputNecessaryItem, gt_recipe.mInputs)) {
                 continue;
             }
+            if (inItemOreDictionaryScreen != null) {
+                for (ItemStack mInput : gt_recipe.mInputs) {
+                    if (mInput == null || mInput.stackSize <= 0) {
+                        continue ;
+                    }
+                    if (!inItemOreDictionaryScreen.test(mInput)) {
+                        continue c;
+                    }
+                }
+            }
             if (hasOutNecessaryItem && !hasItem(outNecessaryItem, gt_recipe.mOutputs)) {
                 continue;
+            }
+            if (outItemOreDictionaryScreen != null) {
+                for (ItemStack mInput : gt_recipe.mOutputs) {
+                    if (mInput == null || mInput.stackSize <= 0) {
+                        continue ;
+                    }
+                    if (!outItemOreDictionaryScreen.test(mInput)) {
+                        continue c;
+                    }
+                }
             }
             if (hasInputNecessaryFluid && !hasFluid(inputNecessaryFluid, gt_recipe.mFluidInputs)) {
                 continue;
@@ -306,6 +329,7 @@ public enum CraftingType {
             }
             list.add(new GenerateCraftingPatternDetails(
                 gtRecipeHasCodeMap.get(gt_recipe),
+                gt_recipe,
                 inAeItemList.toArray(new IAEItemStack[0]),
                 outAeItemList.toArray(new IAEItemStack[0]),
                 tile.isCanSubstitute(),

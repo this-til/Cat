@@ -17,11 +17,13 @@ import appeng.api.storage.data.IAEItemStack;
 import appeng.api.util.AECableType;
 import appeng.api.util.DimensionalCoord;
 import appeng.helpers.IPriorityHost;
+import appeng.items.misc.ItemEncodedPattern;
 import appeng.me.GridAccessException;
 import appeng.me.helpers.AENetworkProxy;
 import appeng.me.helpers.IGridProxyable;
 import appeng.util.Platform;
 import appeng.util.ReadableNumberConverter;
+import appeng.util.prioitylist.OreFilteredList;
 import com.glodblock.github.common.item.ItemFluidPacket;
 import com.google.common.collect.ImmutableList;
 import com.gtnewhorizons.modularui.api.NumberFormat;
@@ -41,8 +43,12 @@ import com.gtnewhorizons.modularui.common.fluid.FluidStackTank;
 import com.gtnewhorizons.modularui.common.internal.wrapper.BaseSlot;
 import com.gtnewhorizons.modularui.common.widget.*;
 import com.gtnewhorizons.modularui.common.widget.textfield.TextFieldWidget;
+import com.til.cat.Cat;
 import com.til.cat.common.crafting_type.CraftingType;
 import com.til.cat.common.crafting_type.GenerateCraftingPatternDetails;
+import com.til.cat.common.util.Util;
+import cpw.mods.fml.relauncher.Side;
+import cpw.mods.fml.relauncher.SideOnly;
 import gregtech.api.GregTech_API;
 import gregtech.api.enums.ItemList;
 import gregtech.api.gui.modularui.GT_UIInfos;
@@ -61,6 +67,7 @@ import mcp.mobius.waila.api.IWailaDataAccessor;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.inventory.InventoryCrafting;
+import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
@@ -78,8 +85,12 @@ import org.apache.commons.lang3.ArrayUtils;
 import javax.annotation.Nullable;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 import static gregtech.api.enums.Textures.BlockIcons.OVERLAY_ME_CRAFTING_INPUT_BUFFER;
 
@@ -99,6 +110,10 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
     protected static final int CONFIGURATION_MULTIPLE_WINDOW_ID = 14;
     protected static final int CONFIGURATION_NUMBER_WINDOW_ID = 15;
     protected static final int CONFIGURATION_PRIORITY_WINDOW = 16;
+    protected static final int CONFIGURATION_TEMPLATE_DISABLE = 17;
+    protected static final int CONFIGURATION_IN_ITEM_ORE_DICTIONARY_SCREEN_TEXT = 18;
+    protected static final int CONFIGURATION_OUT_ITEM_ORE_DICTIONARY_SCREEN_TEXT = 19;
+
     protected static final int[] ALL_WINDOW_ID = new int[]{
         INPUT_NECESSARY_ITEM_WINDOW_ID,
         OUT_NECESSARY_ITEM_WINDOW_ID,
@@ -106,7 +121,10 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
         OUT_NECESSARY_FLUID_WINDOW_ID,
         CONFIGURATION_MULTIPLE_WINDOW_ID,
         CONFIGURATION_NUMBER_WINDOW_ID,
-        CONFIGURATION_PRIORITY_WINDOW
+        CONFIGURATION_PRIORITY_WINDOW,
+        CONFIGURATION_TEMPLATE_DISABLE,
+        CONFIGURATION_IN_ITEM_ORE_DICTIONARY_SCREEN_TEXT,
+        CONFIGURATION_OUT_ITEM_ORE_DICTIONARY_SCREEN_TEXT
     };
 
     protected static final Pos2d[] storedPos = new Pos2d[]{
@@ -204,6 +222,16 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
     protected List<GenerateCraftingPatternDetails> craftingPatternDetailsList = new ArrayList<>();
 
     protected HashSet<Integer> disableGtRecipeHasCodeSet = new HashSet<>();
+
+    protected String inItemOreDictionaryScreenText = "";
+
+    protected String outItemOreDictionaryScreenText = "";
+
+    @Nullable
+    protected Predicate<ItemStack> inItemOreDictionaryScreen;
+
+    @Nullable
+    protected Predicate<ItemStack> outItemOreDictionaryScreen;
 
 
     public GT_MetaTileEntity_Intelligence_Cat_Hatch(int aID, String aName, String aNameRegional, CraftingType craftingType) {
@@ -339,12 +367,14 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
         aNBT.setBoolean("canBeSubstitute", canBeSubstitute);
         aNBT.setBoolean("excludeProbability", excludeProbability);
         aNBT.setInteger("multiple", multiple);
-        aNBT.setString("craftingType", craftingType.name());
+        aNBT.setString("craftingType", craftingType == null ? CraftingType.NULL.name() : craftingType.name());
         aNBT.setTag("inputNecessaryItem", writeStackArray(inputNecessaryItem));
         aNBT.setTag("outNecessaryItem", writeStackArray(outNecessaryItem));
         aNBT.setTag("inputNecessaryFluid", writeStackArray(inputNecessaryFluid));
         aNBT.setTag("outNecessaryFluid", writeStackArray(outNecessaryFluid));
         aNBT.setInteger("priority", priority);
+        aNBT.setString("inItemOreDictionaryScreenText", inItemOreDictionaryScreenText);
+        aNBT.setString("outItemOreDictionaryScreenText", outItemOreDictionaryScreenText);
         NBTTagList itemInventoryNbt = new NBTTagList();
         for (ItemStack itemStack : this.itemInventory) {
             itemInventoryNbt.appendTag(GT_Utility.saveItem(itemStack));
@@ -388,6 +418,9 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
             craftingType = CraftingType.NULL;
         }
 
+        inItemOreDictionaryScreenText = aNBT.getString("inItemOreDictionaryScreenText");
+        outItemOreDictionaryScreenText = aNBT.getString("outItemOreDictionaryScreenText");
+
         readStackArray(inputNecessaryItem, aNBT.getTagList("inputNecessaryItem", 10));
         readStackArray(outNecessaryItem, aNBT.getTagList("outNecessaryItem", 10));
         readStackArray(inputNecessaryFluid, aNBT.getTagList("inputNecessaryFluid", 10));
@@ -419,11 +452,39 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
         return true;
     }
 
+    protected final static Method oreFilteredList_makeMatcher;
+
+    static {
+        try {
+            oreFilteredList_makeMatcher = OreFilteredList.class.getDeclaredMethod("makeMatcher", String.class);
+            oreFilteredList_makeMatcher.setAccessible(true);
+        } catch (NoSuchMethodException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Override
     public void provideCrafting(ICraftingProviderHelper craftingTracker) {
         if (craftingType == null) {
             return;
         }
+
+        try {
+            if (!inItemOreDictionaryScreenText.isEmpty()) {
+                inItemOreDictionaryScreen = Util.forcedConversion(oreFilteredList_makeMatcher.invoke(null, inItemOreDictionaryScreenText));
+            } else {
+                inItemOreDictionaryScreen = null;
+            }
+            if (!outItemOreDictionaryScreenText.isEmpty()) {
+                outItemOreDictionaryScreen = Util.forcedConversion(oreFilteredList_makeMatcher.invoke(null, outItemOreDictionaryScreenText));
+            } else {
+                outItemOreDictionaryScreen = null;
+            }
+        } catch (IllegalAccessException | InvocationTargetException e) {
+            Cat.LOG.error(e);
+        }
+
+
         craftingPatternDetailsList = craftingType.provideCrafting(this, craftingTracker);
         for (GenerateCraftingPatternDetails iCraftingPatternDetails : craftingPatternDetailsList) {
             if (disableGtRecipeHasCodeSet.contains(iCraftingPatternDetails.getGtRecipeHasCode())) {
@@ -705,6 +766,14 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
         return excludeProbability;
     }
 
+    public Predicate<ItemStack> getInItemOreDictionaryScreen() {
+        return inItemOreDictionaryScreen;
+    }
+
+    public Predicate<ItemStack> getOutItemOreDictionaryScreen() {
+        return outItemOreDictionaryScreen;
+    }
+
     @Override
     public void securityBreak() {
 
@@ -783,208 +852,273 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
         buildContext.addSyncedWindow(CONFIGURATION_MULTIPLE_WINDOW_ID, this::createConfigurationMultipleWindow);
         buildContext.addSyncedWindow(CONFIGURATION_NUMBER_WINDOW_ID, this::createConfigurationNumberWindow);
         buildContext.addSyncedWindow(CONFIGURATION_PRIORITY_WINDOW, this::createConfigurationPriorityWindow);
+        buildContext.addSyncedWindow(CONFIGURATION_TEMPLATE_DISABLE, this::createConfigurationTemplateDisable);
+        buildContext.addSyncedWindow(CONFIGURATION_IN_ITEM_ORE_DICTIONARY_SCREEN_TEXT, this::createConfigurationInItemOreDictionaryScreenText);
+        buildContext.addSyncedWindow(CONFIGURATION_OUT_ITEM_ORE_DICTIONARY_SCREEN_TEXT, this::createConfigurationOutItemOreDictionaryScreenText);
         {
-            ButtonWidget itemInButtonWidget = new ButtonWidget();
+            {
+                ButtonWidget itemInButtonWidget = new ButtonWidget();
 
-            itemInButtonWidget.setOnClick((clickData, widget) -> {
-                if (clickData.mouseButton == 0) {
-                    closeAllWindow(widget);
-                    widget.getContext().openSyncedWindow(INPUT_NECESSARY_ITEM_WINDOW_ID);
-                }
-            });
-            itemInButtonWidget.setPlayClickSound(true);
-            itemInButtonWidget.setBackground(() -> itemInButtonWidget.getContext().isWindowOpen(INPUT_NECESSARY_ITEM_WINDOW_ID) ?
-                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.PICTURE_ITEM_IN}
-                : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_ITEM_IN});
-            itemInButtonWidget.addTooltips(ImmutableList.of("打开输入物品限制配置窗口"));
-            itemInButtonWidget.setSize(16, 16);
-            itemInButtonWidget.setPos(7 + 18 * 0, 9);
-
-            builder.widget(itemInButtonWidget);
-        }
-
-        {
-            ButtonWidget itemOutButtonWidget = new ButtonWidget();
-
-            itemOutButtonWidget.setOnClick((clickData, widget) -> {
-                if (clickData.mouseButton == 0) {
-                    closeAllWindow(widget);
-                    widget.getContext().openSyncedWindow(OUT_NECESSARY_ITEM_WINDOW_ID);
-                }
-            });
-            itemOutButtonWidget.setPlayClickSound(true);
-            itemOutButtonWidget.setBackground(() -> itemOutButtonWidget.getContext().isWindowOpen(OUT_NECESSARY_ITEM_WINDOW_ID) ?
-                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.PICTURE_ITEM_OUT}
-                : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_ITEM_OUT});
-            itemOutButtonWidget.addTooltips(ImmutableList.of("打开输出物品限制配置窗口"));
-            itemOutButtonWidget.setSize(16, 16);
-            itemOutButtonWidget.setPos(7 + 18 * 1, 9);
-            builder.widget(itemOutButtonWidget);
-        }
-
-        {
-
-
-            ButtonWidget fluidInButtonWidget = new ButtonWidget();
-
-            fluidInButtonWidget.setOnClick((clickData, widget) -> {
-                if (clickData.mouseButton == 0) {
-                    closeAllWindow(widget);
-                    widget.getContext().openSyncedWindow(INPUT_NECESSARY_FLUID_WINDOW_ID);
-                }
-            });
-            fluidInButtonWidget.setPlayClickSound(true);
-            fluidInButtonWidget.setBackground(() -> fluidInButtonWidget.getContext().isWindowOpen(INPUT_NECESSARY_FLUID_WINDOW_ID) ?
-                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.PICTURE_FLUID_IN}
-                : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_FLUID_IN});
-            fluidInButtonWidget.addTooltips(ImmutableList.of("打开输入流体限制配置窗口"));
-            fluidInButtonWidget.setSize(16, 16);
-            fluidInButtonWidget.setPos(7 + 18 * 2, 9);
-
-            builder.widget(fluidInButtonWidget);
-        }
-
-        {
-
-            ButtonWidget fluidOutButtonWidget = new ButtonWidget();
-
-            fluidOutButtonWidget.setOnClick((clickData, widget) -> {
-                if (clickData.mouseButton == 0) {
-                    closeAllWindow(widget);
-                    widget.getContext().openSyncedWindow(OUT_NECESSARY_FLUID_WINDOW_ID);
-                }
-            });
-            fluidOutButtonWidget.setPlayClickSound(true);
-            fluidOutButtonWidget.setBackground(() -> fluidOutButtonWidget.getContext().isWindowOpen(OUT_NECESSARY_FLUID_WINDOW_ID) ?
-                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.PICTURE_FLUID_OUT}
-                : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_FLUID_OUT});
-            fluidOutButtonWidget.addTooltips(ImmutableList.of("打开输出流体限制配置窗口"));
-            fluidOutButtonWidget.setSize(16, 16);
-            fluidOutButtonWidget.setPos(7 + 18 * 3, 9);
-
-            builder.widget(fluidOutButtonWidget);
-        }
-
-        {
-
-
-            ButtonWidget multipleButtonWidget = new ButtonWidget();
-            multipleButtonWidget.setOnClick((clickData, widget) -> {
-                if (clickData.mouseButton == 0) {
-                    closeAllWindow(widget);
-                    widget.getContext().openSyncedWindow(CONFIGURATION_MULTIPLE_WINDOW_ID);
-                }
-            });
-            multipleButtonWidget.setPlayClickSound(true);
-            multipleButtonWidget.setBackground(() -> multipleButtonWidget.getContext().isWindowOpen(CONFIGURATION_MULTIPLE_WINDOW_ID) ?
-                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_DOWN_TIERING_OFF}
-                : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_DOWN_TIERING_OFF});
-            multipleButtonWidget.addTooltips(ImmutableList.of(
-                "打开样板放大参数配置窗口",
-                "根据此处设置参数按比例放大输入输出物品/流体数量",
-                "遇到概率输出的物品/流体将自动计算概率总和(基础概率*放大参数*0.8)",
-                "如果概率总和小于1将取消该配方构建的样板",
-                "样板使用的放大参数为放大参数的向下取整",
-                "调高板放大参数可以增强配方的稳定性",
-                "你也可以单独设置排除概率输出的配方"));
-            multipleButtonWidget.setSize(16, 16);
-            multipleButtonWidget.setPos(7 + 18 * 4, 9);
-
-            builder.widget(multipleButtonWidget);
-        }
-
-        {
-            ButtonWidget buttonWidget = new ButtonWidget();
-            buttonWidget.setOnClick((clickData, widget) -> {
-                if (clickData.mouseButton == 0) {
-                    closeAllWindow(widget);
-                    widget.getContext().openSyncedWindow(CONFIGURATION_PRIORITY_WINDOW);
-                }
-            });
-            buttonWidget.setPlayClickSound(true);
-            buttonWidget.setBackground(() -> buttonWidget.getContext().isWindowOpen(CONFIGURATION_PRIORITY_WINDOW) ?
-                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_BATCH_MODE_ON}
-                : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_BATCH_MODE_ON});
-            buttonWidget.addTooltips(ImmutableList.of("配置优先级"));
-            buttonWidget.setSize(16, 16);
-            buttonWidget.setPos(7 + 18 * 5, 9);
-
-
-            builder.widget(buttonWidget);
-        }
-
-        {
-            ButtonWidget exportButtonWidget = new ButtonWidget();
-            exportButtonWidget.setOnClick((clickData, widget) -> {
-                if (clickData.mouseButton == 0) {
-                    try {
-                        refundAll();
-                    } catch (GridAccessException ignored) {
+                itemInButtonWidget.setOnClick((clickData, widget) -> {
+                    if (clickData.mouseButton == 0) {
+                        closeAllWindow(widget);
+                        widget.getContext().openSyncedWindow(INPUT_NECESSARY_ITEM_WINDOW_ID);
                     }
-                }
-            });
-            exportButtonWidget.setPlayClickSound(true);
-            exportButtonWidget.setBackground(GT_UITextures.BUTTON_STANDARD, GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_EXPORT);
-            exportButtonWidget.addTooltips(ImmutableList.of("返回所有物品到AE"));
-            exportButtonWidget.setSize(16, 16);
-            exportButtonWidget.setPos(7 + 18 * 6, 9);
+                });
+                itemInButtonWidget.setPlayClickSound(true);
+                itemInButtonWidget.setBackground(() -> itemInButtonWidget.getContext().isWindowOpen(INPUT_NECESSARY_ITEM_WINDOW_ID) ?
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.PICTURE_ITEM_IN}
+                    : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_ITEM_IN});
+                itemInButtonWidget.addTooltips(ImmutableList.of("打开输入物品限制配置窗口"));
+                itemInButtonWidget.setSize(16, 16);
+                itemInButtonWidget.setPos(7 + 18 * 0, 9);
+
+                builder.widget(itemInButtonWidget);
+            }
+
+            {
+                ButtonWidget itemOutButtonWidget = new ButtonWidget();
+
+                itemOutButtonWidget.setOnClick((clickData, widget) -> {
+                    if (clickData.mouseButton == 0) {
+                        closeAllWindow(widget);
+                        widget.getContext().openSyncedWindow(OUT_NECESSARY_ITEM_WINDOW_ID);
+                    }
+                });
+                itemOutButtonWidget.setPlayClickSound(true);
+                itemOutButtonWidget.setBackground(() -> itemOutButtonWidget.getContext().isWindowOpen(OUT_NECESSARY_ITEM_WINDOW_ID) ?
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.PICTURE_ITEM_OUT}
+                    : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_ITEM_OUT});
+                itemOutButtonWidget.addTooltips(ImmutableList.of("打开输出物品限制配置窗口"));
+                itemOutButtonWidget.setSize(16, 16);
+                itemOutButtonWidget.setPos(7 + 18 * 1, 9);
+                builder.widget(itemOutButtonWidget);
+            }
+
+            {
 
 
-            builder.widget(exportButtonWidget);
+                ButtonWidget fluidInButtonWidget = new ButtonWidget();
+
+                fluidInButtonWidget.setOnClick((clickData, widget) -> {
+                    if (clickData.mouseButton == 0) {
+                        closeAllWindow(widget);
+                        widget.getContext().openSyncedWindow(INPUT_NECESSARY_FLUID_WINDOW_ID);
+                    }
+                });
+                fluidInButtonWidget.setPlayClickSound(true);
+                fluidInButtonWidget.setBackground(() -> fluidInButtonWidget.getContext().isWindowOpen(INPUT_NECESSARY_FLUID_WINDOW_ID) ?
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.PICTURE_FLUID_IN}
+                    : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_FLUID_IN});
+                fluidInButtonWidget.addTooltips(ImmutableList.of("打开输入流体限制配置窗口"));
+                fluidInButtonWidget.setSize(16, 16);
+                fluidInButtonWidget.setPos(7 + 18 * 2, 9);
+
+                builder.widget(fluidInButtonWidget);
+            }
+
+            {
+
+                ButtonWidget fluidOutButtonWidget = new ButtonWidget();
+
+                fluidOutButtonWidget.setOnClick((clickData, widget) -> {
+                    if (clickData.mouseButton == 0) {
+                        closeAllWindow(widget);
+                        widget.getContext().openSyncedWindow(OUT_NECESSARY_FLUID_WINDOW_ID);
+                    }
+                });
+                fluidOutButtonWidget.setPlayClickSound(true);
+                fluidOutButtonWidget.setBackground(() -> fluidOutButtonWidget.getContext().isWindowOpen(OUT_NECESSARY_FLUID_WINDOW_ID) ?
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.PICTURE_FLUID_OUT}
+                    : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.PICTURE_FLUID_OUT});
+                fluidOutButtonWidget.addTooltips(ImmutableList.of("打开输出流体限制配置窗口"));
+                fluidOutButtonWidget.setSize(16, 16);
+                fluidOutButtonWidget.setPos(7 + 18 * 3, 9);
+
+                builder.widget(fluidOutButtonWidget);
+            }
+
+            {
+
+
+                ButtonWidget multipleButtonWidget = new ButtonWidget();
+                multipleButtonWidget.setOnClick((clickData, widget) -> {
+                    if (clickData.mouseButton == 0) {
+                        closeAllWindow(widget);
+                        widget.getContext().openSyncedWindow(CONFIGURATION_MULTIPLE_WINDOW_ID);
+                    }
+                });
+                multipleButtonWidget.setPlayClickSound(true);
+                multipleButtonWidget.setBackground(() -> multipleButtonWidget.getContext().isWindowOpen(CONFIGURATION_MULTIPLE_WINDOW_ID) ?
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_DOWN_TIERING_OFF}
+                    : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_DOWN_TIERING_OFF});
+                multipleButtonWidget.addTooltips(ImmutableList.of(
+                    "打开样板放大参数配置窗口",
+                    "根据此处设置参数按比例放大输入输出物品/流体数量",
+                    "遇到概率输出的物品/流体将自动计算概率总和(基础概率*放大参数*0.8)",
+                    "如果概率总和小于1将取消该配方构建的样板",
+                    "样板使用的放大参数为放大参数的向下取整",
+                    "调高板放大参数可以增强配方的稳定性",
+                    "你也可以单独设置排除概率输出的配方"));
+                multipleButtonWidget.setSize(16, 16);
+                multipleButtonWidget.setPos(7 + 18 * 4, 9);
+
+                builder.widget(multipleButtonWidget);
+            }
+
+            {
+                ButtonWidget buttonWidget = new ButtonWidget();
+                buttonWidget.setOnClick((clickData, widget) -> {
+                    if (clickData.mouseButton == 0) {
+                        closeAllWindow(widget);
+                        widget.getContext().openSyncedWindow(CONFIGURATION_PRIORITY_WINDOW);
+                    }
+                });
+                buttonWidget.setPlayClickSound(true);
+                buttonWidget.setBackground(() -> buttonWidget.getContext().isWindowOpen(CONFIGURATION_PRIORITY_WINDOW) ?
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_BATCH_MODE_ON}
+                    : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_BATCH_MODE_ON});
+                buttonWidget.addTooltips(ImmutableList.of("配置优先级"));
+                buttonWidget.setSize(16, 16);
+                buttonWidget.setPos(7 + 18 * 5, 9);
+
+
+                builder.widget(buttonWidget);
+            }
+
+            {
+                ButtonWidget buttonWidget = new ButtonWidget();
+                buttonWidget.setOnClick((clickData, widget) -> {
+                    if (clickData.mouseButton == 0) {
+                        closeAllWindow(widget);
+                        widget.getContext().openSyncedWindow(CONFIGURATION_TEMPLATE_DISABLE);
+                    }
+                });
+                buttonWidget.setPlayClickSound(true);
+                buttonWidget.setBackground(() -> buttonWidget.getContext().isWindowOpen(CONFIGURATION_TEMPLATE_DISABLE) ?
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_ANALOG}
+                    : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_ANALOG});
+                buttonWidget.addTooltips(ImmutableList.of("查看样板(点击样板可以禁用)"));
+                buttonWidget.setSize(16, 16);
+                buttonWidget.setPos(7 + 18 * 6, 9);
+
+
+                builder.widget(buttonWidget);
+            }
+
+            {
+                ButtonWidget exportButtonWidget = new ButtonWidget();
+                exportButtonWidget.setOnClick((clickData, widget) -> {
+                    if (clickData.mouseButton == 0) {
+                        try {
+                            refundAll();
+                        } catch (GridAccessException ignored) {
+                        }
+                    }
+                });
+                exportButtonWidget.setPlayClickSound(true);
+                exportButtonWidget.setBackground(GT_UITextures.BUTTON_STANDARD, GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_EXPORT);
+                exportButtonWidget.addTooltips(ImmutableList.of("返回所有物品到AE"));
+                exportButtonWidget.setSize(16, 16);
+                exportButtonWidget.setPos(7 + 18 * 7, 9);
+
+
+                builder.widget(exportButtonWidget);
+            }
         }
-
         {
-            ButtonWidget buttonWidget = new ButtonWidget();
-            buttonWidget.setOnClick((clickData, widget) -> {
-                canSubstitute = !canSubstitute;
-                needPatternSync = true;
-            });
-            buttonWidget.setBackground(() -> canSubstitute ?
-                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_CHECKMARK} :
-                new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_CROSS});
-            buttonWidget.setPlayClickSound(true);
-            buttonWidget.addTooltips(ImmutableList.of("生成ae样板的将启用替换功能"));
-            buttonWidget.setSize(16, 16);
-            buttonWidget.setPos(7 + 18 * 0, 9 + 18 * 1);
+            {
+                ButtonWidget buttonWidget = new ButtonWidget();
+                buttonWidget.setOnClick((clickData, widget) -> {
+                    if (clickData.mouseButton == 0) {
+                        closeAllWindow(widget);
+                        widget.getContext().openSyncedWindow(CONFIGURATION_IN_ITEM_ORE_DICTIONARY_SCREEN_TEXT);
+                    }
+                });
+                buttonWidget.setPlayClickSound(true);
+                buttonWidget.setBackground(() -> buttonWidget.getContext().isWindowOpen(CONFIGURATION_IN_ITEM_ORE_DICTIONARY_SCREEN_TEXT) ?
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_BLACKLIST}
+                    : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_BLACKLIST});
+                buttonWidget.addTooltips(ImmutableList.of("配置输入物品矿辞限制"));
+                buttonWidget.setSize(16, 16);
+                buttonWidget.setPos(7 + 18 * 0, 9 + 18 * 1);
 
-            builder.widget(buttonWidget);
+                builder.widget(buttonWidget);
+            }
+
+            {
+                ButtonWidget buttonWidget = new ButtonWidget();
+                buttonWidget.setOnClick((clickData, widget) -> {
+                    if (clickData.mouseButton == 0) {
+                        closeAllWindow(widget);
+                        widget.getContext().openSyncedWindow(CONFIGURATION_OUT_ITEM_ORE_DICTIONARY_SCREEN_TEXT);
+                    }
+                });
+                buttonWidget.setPlayClickSound(true);
+                buttonWidget.setBackground(() -> buttonWidget.getContext().isWindowOpen(CONFIGURATION_OUT_ITEM_ORE_DICTIONARY_SCREEN_TEXT) ?
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_BLACKLIST}
+                    : new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_BLACKLIST});
+                buttonWidget.addTooltips(ImmutableList.of("配置输出物品矿辞限制"));
+                buttonWidget.setSize(16, 16);
+                buttonWidget.setPos(7 + 18 * 2, 9 + 18 * 1);
+
+                builder.widget(buttonWidget);
+            }
         }
-
         {
-            ButtonWidget buttonWidget = new ButtonWidget();
-            buttonWidget.setOnClick((clickData, widget) -> {
-                canBeSubstitute = !canBeSubstitute;
-                needPatternSync = true;
-            });
-            buttonWidget.setBackground(() -> canBeSubstitute ?
-                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_CHECKMARK} :
-                new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_CROSS});
-            buttonWidget.setPlayClickSound(true);
-            buttonWidget.addTooltips(ImmutableList.of("生成ae样板的将启用被替换功能"));
-            buttonWidget.setSize(16, 16);
-            buttonWidget.setPos(7 + 18 * 1, 9 + 18 * 1);
+            {
+                ButtonWidget buttonWidget = new ButtonWidget();
+                buttonWidget.setOnClick((clickData, widget) -> {
+                    canSubstitute = !canSubstitute;
+                    needPatternSync = true;
+                });
+                buttonWidget.setBackground(() -> canSubstitute ?
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_CHECKMARK} :
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_CROSS});
+                buttonWidget.setPlayClickSound(true);
+                buttonWidget.addTooltips(ImmutableList.of("生成ae样板的将启用替换功能"));
+                buttonWidget.setSize(16, 16);
+                buttonWidget.setPos(7 + 18 * 0, 9 + 18 * 2);
 
-            builder.widget(buttonWidget);
+                builder.widget(buttonWidget);
+            }
+
+            {
+                ButtonWidget buttonWidget = new ButtonWidget();
+                buttonWidget.setOnClick((clickData, widget) -> {
+                    canBeSubstitute = !canBeSubstitute;
+                    needPatternSync = true;
+                });
+                buttonWidget.setBackground(() -> canBeSubstitute ?
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_CHECKMARK} :
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_CROSS});
+                buttonWidget.setPlayClickSound(true);
+                buttonWidget.addTooltips(ImmutableList.of("生成ae样板的将启用被替换功能"));
+                buttonWidget.setSize(16, 16);
+                buttonWidget.setPos(7 + 18 * 1, 9 + 18 * 2);
+
+                builder.widget(buttonWidget);
+            }
+
+            {
+                ButtonWidget buttonWidget = new ButtonWidget();
+                buttonWidget.setOnClick((clickData, widget) -> {
+                    excludeProbability = !excludeProbability;
+                    needPatternSync = true;
+                });
+                buttonWidget.setBackground(() -> excludeProbability ?
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_CHECKMARK} :
+                    new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_CROSS});
+                buttonWidget.setPlayClickSound(true);
+                buttonWidget.addTooltips(ImmutableList.of("如果启用将直接排除有概率输出的配方样板"));
+                buttonWidget.setSize(16, 16);
+                buttonWidget.setPos(7 + 18 * 2, 9 + 18 * 2);
+
+                builder.widget(buttonWidget);
+            }
         }
-
-        {
-            ButtonWidget buttonWidget = new ButtonWidget();
-            buttonWidget.setOnClick((clickData, widget) -> {
-                excludeProbability = !excludeProbability;
-                needPatternSync = true;
-            });
-            buttonWidget.setBackground(() -> excludeProbability ?
-                new IDrawable[]{GT_UITextures.BUTTON_STANDARD_PRESSED, GT_UITextures.OVERLAY_BUTTON_CHECKMARK} :
-                new IDrawable[]{GT_UITextures.BUTTON_STANDARD, GT_UITextures.OVERLAY_BUTTON_CROSS});
-            buttonWidget.setPlayClickSound(true);
-            buttonWidget.addTooltips(ImmutableList.of("如果启用将直接排除有概率输出的配方样板"));
-            buttonWidget.setSize(16, 16);
-            buttonWidget.setPos(7 + 18 * 2, 9 + 18 * 1);
-
-            builder.widget(buttonWidget);
-        }
-
     }
+
 
     @Nullable
     protected Consumer<Integer> setAmount;
@@ -1028,6 +1162,191 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
 
     }
 
+
+    protected ModularWindow createConfigurationTemplateDisable(EntityPlayer player) {
+        AtomicInteger page = new AtomicInteger();
+
+        final int WIDTH = 114;
+        final int HEIGHT = 132;
+        final int PARENT_WIDTH = getGUIWidth();
+        final int PARENT_HEIGHT = getGUIHeight();
+        final int MAX_SLOT = 6 * 6;
+
+        ItemStackHandler itemStackHandler = new ItemStackHandler(MAX_SLOT);
+        SlotWidget[] slotWidgets = new SlotWidget[MAX_SLOT];
+        List<GenerateCraftingPatternDetails> useGenerateCraftingPatternDetails = new ArrayList<>(craftingPatternDetailsList);
+
+        ModularWindow.Builder builder = ModularWindow.builder(WIDTH, HEIGHT);
+        builder.setBackground(GT_UITextures.BACKGROUND_SINGLEBLOCK_DEFAULT);
+        builder.setGuiTint(getGUIColorization());
+        builder.setDraggable(true);
+       /* {
+            TextFieldWidget textFieldWidget = new TextFieldWidget();
+            textFieldWidget.setSetter(s -> {
+                nameScreen.set(s);
+                page.set(0);
+
+                useGenerateCraftingPatternDetails.clear();
+                for (GenerateCraftingPatternDetails generateCraftingPatternDetails : craftingPatternDetailsList) {
+                    GT_Recipe gtRecipe = generateCraftingPatternDetails.getGtRecipe();
+
+                }
+
+                upTemplateDisableItemStackHandler(useGenerateCraftingPatternDetails, itemStackHandler, page);
+            });
+            textFieldWidget.setGetter(nameScreen::get);
+            textFieldWidget.setTextAlignment(Alignment.Center);
+            textFieldWidget.setTextColor(Color.WHITE.normal);
+            textFieldWidget.setSize(140, 18);
+            textFieldWidget.setPos(8, 18);
+            textFieldWidget.setBackground(GT_UITextures.BACKGROUND_TEXT_FIELD);
+        }*/
+
+        {
+            SlotGroup.ItemGroupBuilder itemGroupBuilder = SlotGroup.ofItemHandler(itemStackHandler, 6);
+            itemGroupBuilder.startFromSlot(0);
+            itemGroupBuilder.endAtSlot(MAX_SLOT - 1);
+            itemGroupBuilder.phantom(true);
+            itemGroupBuilder.background(getGUITextureSet().getItemSlot(), GT_UITextures.OVERLAY_SLOT_PATTERN_ME);
+            itemGroupBuilder.slotCreator(i -> new BaseSlot(itemStackHandler, 1) {
+                @Override
+                public void putStack(ItemStack stack) {
+                    super.putStack(stack);
+                    slotWidgets[i].detectAndSendChanges(true);
+                }
+            }.disableShiftInsert());
+            itemGroupBuilder.widgetCreator(slot -> {
+                SlotWidget slotWidget;
+                slotWidget = new SlotWidget(slot) {
+                    boolean isDisable;
+
+                    @Override
+                    protected ItemStack getItemStackForRendering(Slot slotIn) {
+                        var stack = slot.getStack();
+                        if (stack == null || !(stack.getItem() instanceof ItemEncodedPattern patternItem)) {
+                            return stack;
+                        }
+                        var output = patternItem.getOutput(stack);
+                        return output != null ? output : stack;
+                    }
+
+                    @Override
+                    public void readOnClient(int id, PacketBuffer buf) {
+                        super.readOnClient(id, buf);
+                        switch (id) {
+                            case SYNCHRONOUS_TEMPLATE_DISABLE:
+                                isDisable = buf.readBoolean();
+                                break;
+                        }
+                    }
+
+                    @Override
+                    protected void phantomClick(ClickData clickData, ItemStack cursorStack) {
+                        if (slot.getStack() == null) {
+                            return;
+                        }
+                        if (getContext().isClient()) {
+                            return;
+                        }
+                        GenerateCraftingPatternDetails generateCraftingPatternDetails
+                            = useGenerateCraftingPatternDetails.get(page.get() * MAX_SLOT + slot.getSlotIndex());
+                        switch (clickData.mouseButton) {
+                            case 0:
+                                if (disableGtRecipeHasCodeSet.contains(generateCraftingPatternDetails.getGtRecipeHasCode())) {
+                                    disableGtRecipeHasCodeSet.remove(generateCraftingPatternDetails.getGtRecipeHasCode());
+                                } else {
+                                    disableGtRecipeHasCodeSet.add(generateCraftingPatternDetails.getGtRecipeHasCode());
+                                }
+                                upTemplateDisableItemStackHandler(useGenerateCraftingPatternDetails, slotWidgets, page);
+                                break;
+                        }
+                    }
+
+                    @SideOnly(Side.CLIENT)
+                    protected void drawSlot(Slot slotIn, boolean drawStackSize) {
+                        int x = slotIn.xDisplayPosition;
+                        int y = slotIn.yDisplayPosition;
+                        super.drawSlot(slotIn, drawStackSize);
+                        if (isDisable) {
+                            GT_UITextures.OVERLAY_BUTTON_DISABLE.draw(x, y, 16, 16);
+                        }
+                    }
+
+                };
+                slotWidgets[slot.getSlotIndex()] = slotWidget;
+                return slotWidget;
+            });
+            builder.widget(itemGroupBuilder.build().setPos(3, 3));
+        }
+
+        {
+            {
+                ButtonWidget buttonWidget = new ButtonWidget();
+                buttonWidget.setOnClick((clickData, widget) -> {
+                    if (page.get() - 1 >= 0) {
+                        page.set(page.get() - 1);
+                    }
+                    if (!widget.getContext().isClient()) {
+                        upTemplateDisableItemStackHandler(useGenerateCraftingPatternDetails, slotWidgets, page);
+                    }
+                });
+                buttonWidget.setBackground(GT_UITextures.OVERLAY_BUTTON_ARROW_GREEN_UP);
+                buttonWidget.setPlayClickSound(true);
+                buttonWidget.addTooltips(ImmutableList.of("上一页"));
+                buttonWidget.setSize(16, 16);
+                buttonWidget.setPos(3, 111);
+                builder.widget(buttonWidget);
+            }
+            {
+                TextWidget textWidget = TextWidget.dynamicText(() -> new Text(String.valueOf(page.get())));
+                textWidget.setSize(16, 16);
+                textWidget.setPos(45, 111);
+                builder.widget(textWidget);
+            }
+            {
+                ButtonWidget buttonWidget = new ButtonWidget();
+                buttonWidget.setOnClick((clickData, widget) -> {
+                    if (page.get() + 1 < craftingPatternDetailsList.size()) {
+                        page.set(page.get() + 1);
+                    }
+                    if (!widget.getContext().isClient()) {
+                        upTemplateDisableItemStackHandler(useGenerateCraftingPatternDetails, slotWidgets, page);
+                    }
+                });
+                buttonWidget.setBackground(GT_UITextures.OVERLAY_BUTTON_ARROW_GREEN_DOWN);
+                buttonWidget.setPlayClickSound(true);
+                buttonWidget.addTooltips(ImmutableList.of("下一页"));
+                buttonWidget.setSize(16, 16);
+                buttonWidget.setPos(93, 111);
+                builder.widget(buttonWidget);
+            }
+        }
+        builder.setPos(
+            (size, window) -> Alignment.Center.getAlignedPos(
+                size,
+                new Size(PARENT_WIDTH, PARENT_HEIGHT)
+            ).add(Alignment.TopRight.getAlignedPos(
+                new Size(PARENT_WIDTH, PARENT_HEIGHT),
+                new Size(WIDTH, HEIGHT)).add(WIDTH - 3, 0)));
+        return builder.build();
+    }
+
+    public static final int SYNCHRONOUS_TEMPLATE_DISABLE = 1000;
+
+    protected void upTemplateDisableItemStackHandler(List<GenerateCraftingPatternDetails> useGenerateCraftingPatternDetails, SlotWidget[] slotWidgets, AtomicInteger page) {
+        final int MAX_SLOT = 6 * 6;
+        for (int i = 0; i < MAX_SLOT; i++) {
+            int ii = page.get() * MAX_SLOT + i;
+            if (ii >= useGenerateCraftingPatternDetails.size()) {
+                slotWidgets[i].getMcSlot().putStack(null);
+                slotWidgets[i].syncToClient(SYNCHRONOUS_TEMPLATE_DISABLE, p -> p.writeBoolean(true));
+            } else {
+                slotWidgets[i].getMcSlot().putStack(useGenerateCraftingPatternDetails.get(ii).getPattern());
+                slotWidgets[i].syncToClient(SYNCHRONOUS_TEMPLATE_DISABLE, p -> p.writeBoolean(disableGtRecipeHasCodeSet.contains(useGenerateCraftingPatternDetails.get(ii).getGtRecipeHasCode())));
+            }
+        }
+    }
+
     protected ModularWindow createConfigurationPriorityWindow(final EntityPlayer player) {
         final int WIDTH = 78;
         final int HEIGHT = 40;
@@ -1050,7 +1369,7 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
                         multiple = val;
                         needPatternSync = true;
                     })
-                    .setGetterInt(() -> multiple)
+                    .setGetterInt(() -> priority)
                     .setNumbers(Integer.MIN_VALUE, Integer.MAX_VALUE)
                     .setOnScrollNumbers(1, 1, 64)
                     .setTextAlignment(Alignment.Center)
@@ -1094,6 +1413,67 @@ public class GT_MetaTileEntity_Intelligence_Cat_Hatch
         return builder.build();
     }
 
+    protected ModularWindow createConfigurationInItemOreDictionaryScreenText(final EntityPlayer player) {
+        final int WIDTH = 156;
+        final int HEIGHT = 40;
+        final int PARENT_WIDTH = getGUIWidth();
+        final int PARENT_HEIGHT = getGUIHeight();
+        ModularWindow.Builder builder = ModularWindow.builder(WIDTH, HEIGHT);
+        builder.setBackground(GT_UITextures.BACKGROUND_SINGLEBLOCK_DEFAULT);
+        builder.setGuiTint(getGUIColorization());
+        builder.setDraggable(true);
+        builder.setPos(
+            (size, window) -> Alignment.Center.getAlignedPos(size, new Size(PARENT_WIDTH, PARENT_HEIGHT))
+                .add(
+                    Alignment.TopRight.getAlignedPos(new Size(PARENT_WIDTH, PARENT_HEIGHT), new Size(WIDTH, HEIGHT))
+                        .add(WIDTH - 3, 0)));
+        builder.widget(
+                new TextWidget("矿辞(同矿辞卡一样配置)").setPos(3, 2)
+                    .setSize(148, 14))
+            .widget(
+                new TextFieldWidget().setSetter(val -> {
+                        inItemOreDictionaryScreenText = val;
+                        needPatternSync = true;
+                    })
+                    .setGetter(() -> inItemOreDictionaryScreenText)
+                    .setTextAlignment(Alignment.Center)
+                    .setTextColor(Color.WHITE.normal)
+                    .setSize(140, 18)
+                    .setPos(8, 18)
+                    .setBackground(GT_UITextures.BACKGROUND_TEXT_FIELD));
+        return builder.build();
+    }
+
+    protected ModularWindow createConfigurationOutItemOreDictionaryScreenText(final EntityPlayer player) {
+        final int WIDTH = 156;
+        final int HEIGHT = 40;
+        final int PARENT_WIDTH = getGUIWidth();
+        final int PARENT_HEIGHT = getGUIHeight();
+        ModularWindow.Builder builder = ModularWindow.builder(WIDTH, HEIGHT);
+        builder.setBackground(GT_UITextures.BACKGROUND_SINGLEBLOCK_DEFAULT);
+        builder.setGuiTint(getGUIColorization());
+        builder.setDraggable(true);
+        builder.setPos(
+            (size, window) -> Alignment.Center.getAlignedPos(size, new Size(PARENT_WIDTH, PARENT_HEIGHT))
+                .add(
+                    Alignment.TopRight.getAlignedPos(new Size(PARENT_WIDTH, PARENT_HEIGHT), new Size(WIDTH, HEIGHT))
+                        .add(WIDTH - 3, 0)));
+        builder.widget(
+                new TextWidget("矿辞(同矿辞卡一样配置)").setPos(3, 2)
+                    .setSize(148, 14))
+            .widget(
+                new TextFieldWidget().setSetter(val -> {
+                        outItemOreDictionaryScreenText = val;
+                        needPatternSync = true;
+                    })
+                    .setGetter(() -> outItemOreDictionaryScreenText)
+                    .setTextAlignment(Alignment.Center)
+                    .setTextColor(Color.WHITE.normal)
+                    .setSize(140, 18)
+                    .setPos(8, 18)
+                    .setBackground(GT_UITextures.BACKGROUND_TEXT_FIELD));
+        return builder.build();
+    }
 
     protected ModularWindow createNecessaryItemConfigurationWindow(EntityPlayer player, ItemStack[] necessaryItemStack, IDrawable iDrawable) {
         final int WIDTH = 60;
